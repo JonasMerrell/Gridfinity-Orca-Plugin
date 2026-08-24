@@ -3,14 +3,14 @@ name: Publish to OrcaCloud
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   id-token: write
   contents: read
 
 env:
-  # Space-separated globs matching the plugin files to upload (.whl / .py).
-  PLUGIN_FILES: "gridfinity_bin_plugin_*.py"
+  PLUGIN_FILES: "gridfinity_bin_plugin_linux_x86_64.py gridfinity_bin_plugin_linux_arm64.py gridfinity_bin_plugin_win_x86_64.py gridfinity_bin_plugin_win_arm64.py gridfinity_bin_plugin_macosx_arm64.py gridfinity_bin_plugin_macosx_x86_64.py"
 
 jobs:
   publish:
@@ -24,8 +24,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build plugin targets
-        run: python3 build_orca_plugin.py --all-targets
+      - name: Clean and build plugin targets
+        run: |
+          rm -f gridfinity_bin_plugin_*.py
+          python3 build_orca_plugin.py --all-targets
 
       - name: Publish release to OrcaCloud
         run: |
@@ -39,6 +41,7 @@ jobs:
           args=(-F "metadata=$metadata")
           shopt -s nullglob
           for file in $PLUGIN_FILES; do
+            echo "Attaching plugin file: $file"
             args+=(-F "files=@$file")
           done
           if [ "${#args[@]}" -eq 1 ]; then
