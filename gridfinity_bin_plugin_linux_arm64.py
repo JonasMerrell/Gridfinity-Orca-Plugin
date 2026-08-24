@@ -607,7 +607,7 @@ canvas.dragging { cursor:grabbing; }
       <div class="row" id="row_gz">
         <label for="gz">Height</label>
         <input type="range" id="gz" min="1" max="20" step="1" value="6">
-        <input type="number" id="gz_num" min="1" max="100" step="1" value="6">
+        <input type="number" id="gz_num" min="1" max="50" step="1" value="6">
       </div>
     </section>
 
@@ -616,12 +616,12 @@ canvas.dragging { cursor:grabbing; }
       <div class="row">
         <label for="plate_gx">Width</label>
         <input type="range" id="plate_gx" min="1" max="20" step="1" value="4">
-        <input type="number" id="plate_gx_num" min="1" max="100" step="1" value="4">
+        <input type="number" id="plate_gx_num" min="1" max="50" step="1" value="4">
       </div>
       <div class="row">
         <label for="plate_gy">Depth</label>
         <input type="range" id="plate_gy" min="1" max="20" step="1" value="3">
-        <input type="number" id="plate_gy_num" min="1" max="100" step="1" value="3">
+        <input type="number" id="plate_gy_num" min="1" max="50" step="1" value="3">
       </div>
 
       <h2 style="margin-top:16px">Baseplate Options</h2>
@@ -650,12 +650,12 @@ canvas.dragging { cursor:grabbing; }
         <div class="row">
           <label for="dx">Across X</label>
           <input type="range" id="dx" min="1" max="8" step="1" value="2">
-          <input type="number" id="dx_num" min="1" max="20" step="1" value="2">
+          <input type="number" id="dx_num" min="1" max="50" step="1" value="2">
         </div>
         <div class="row">
           <label for="dy">Across Y</label>
           <input type="range" id="dy" min="1" max="8" step="1" value="1">
-          <input type="number" id="dy_num" min="1" max="20" step="1" value="1">
+          <input type="number" id="dy_num" min="1" max="50" step="1" value="1">
         </div>
       </div>
 
@@ -664,7 +664,7 @@ canvas.dragging { cursor:grabbing; }
         <div class="row">
           <label for="num_rows">Total Rows</label>
           <input type="range" id="num_rows" min="1" max="8" step="1" value="2">
-          <input type="number" id="num_rows_num" min="1" max="20" step="1" value="2">
+          <input type="number" id="num_rows_num" min="1" max="50" step="1" value="2">
         </div>
         <div id="rowDivList" class="dyn-list"></div>
       </div>
@@ -674,7 +674,7 @@ canvas.dragging { cursor:grabbing; }
         <div class="row">
           <label for="num_cols">Total Cols</label>
           <input type="range" id="num_cols" min="1" max="8" step="1" value="2">
-          <input type="number" id="num_cols_num" min="1" max="20" step="1" value="2">
+          <input type="number" id="num_cols_num" min="1" max="50" step="1" value="2">
         </div>
         <div id="colDivList" class="dyn-list"></div>
       </div>
@@ -2131,11 +2131,22 @@ var FLOATS = ["wall","floorT","scoopR","labelD","fillet","plateBase","plateR","b
 var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors"];
 var lastTris = 0;
 
+function getVal(id, numId) {
+  var numEl = document.getElementById(numId);
+  if (numEl) {
+    var v = parseInt(numEl.value, 10);
+    if (!isNaN(v)) return Math.max(1, Math.min(50, v));
+  }
+  var rangeEl = document.getElementById(id);
+  if (rangeEl) return Math.max(1, Math.min(50, parseInt(rangeEl.value, 10) || 1));
+  return 1;
+}
+
 function renderRowList() {
   var container = document.getElementById("rowDivList");
   if (!container) return;
   container.innerHTML = "";
-  var nr = Math.max(1, P.num_rows || 2);
+  var nr = Math.max(1, Math.min(50, P.num_rows || 2));
   if (!P.row_divs) P.row_divs = [];
   while (P.row_divs.length < nr) P.row_divs.push(P.row_divs[P.row_divs.length - 1] || 1);
   if (P.row_divs.length > nr) P.row_divs.length = nr;
@@ -2146,8 +2157,8 @@ function renderRowList() {
       item.className = "dyn-item";
       var lblText = "Row " + (rowIndex + 1) + (rowIndex === 0 ? " (Front)" : rowIndex === nr - 1 ? " (Back)" : "");
       item.innerHTML = '<label>' + lblText + '</label>' +
-        '<input type="range" min="1" max="8" step="1" value="' + P.row_divs[rowIndex] + '">' +
-        '<input type="number" min="1" max="20" step="1" value="' + P.row_divs[rowIndex] + '">';
+        '<input type="range" min="1" max="8" step="1" value="' + Math.min(8, P.row_divs[rowIndex]) + '">' +
+        '<input type="number" min="1" max="50" step="1" value="' + P.row_divs[rowIndex] + '">';
       container.appendChild(item);
 
       var rangeEl = item.querySelector('input[type="range"]');
@@ -2168,14 +2179,14 @@ function renderRowList() {
         var v = parseInt(numEl.value, 10);
         if (!isNaN(v)) {
           rangeEl.value = Math.max(1, Math.min(8, v));
-          P.row_divs[rowIndex] = Math.max(1, v);
+          P.row_divs[rowIndex] = Math.max(1, Math.min(50, v));
         }
         onChange(false);
       });
       numEl.addEventListener("change", function() {
         var v = parseInt(numEl.value, 10);
         if (isNaN(v)) v = +rangeEl.value;
-        v = Math.max(1, v);
+        v = Math.max(1, Math.min(50, v));
         numEl.value = v;
         rangeEl.value = Math.min(8, v);
         P.row_divs[rowIndex] = v;
@@ -2189,7 +2200,7 @@ function renderColList() {
   var container = document.getElementById("colDivList");
   if (!container) return;
   container.innerHTML = "";
-  var nc = Math.max(1, P.num_cols || 2);
+  var nc = Math.max(1, Math.min(50, P.num_cols || 2));
   if (!P.col_divs) P.col_divs = [];
   while (P.col_divs.length < nc) P.col_divs.push(P.col_divs[P.col_divs.length - 1] || 1);
   if (P.col_divs.length > nc) P.col_divs.length = nc;
@@ -2200,8 +2211,8 @@ function renderColList() {
       item.className = "dyn-item";
       var lblText = "Col " + (colIndex + 1) + (colIndex === 0 ? " (Left)" : colIndex === nc - 1 ? " (Right)" : "");
       item.innerHTML = '<label>' + lblText + '</label>' +
-        '<input type="range" min="1" max="8" step="1" value="' + P.col_divs[colIndex] + '">' +
-        '<input type="number" min="1" max="20" step="1" value="' + P.col_divs[colIndex] + '">';
+        '<input type="range" min="1" max="8" step="1" value="' + Math.min(8, P.col_divs[colIndex]) + '">' +
+        '<input type="number" min="1" max="50" step="1" value="' + P.col_divs[colIndex] + '">';
       container.appendChild(item);
 
       var rangeEl = item.querySelector('input[type="range"]');
@@ -2222,14 +2233,14 @@ function renderColList() {
         var v = parseInt(numEl.value, 10);
         if (!isNaN(v)) {
           rangeEl.value = Math.max(1, Math.min(8, v));
-          P.col_divs[colIndex] = Math.max(1, v);
+          P.col_divs[colIndex] = Math.max(1, Math.min(50, v));
         }
         onChange(false);
       });
       numEl.addEventListener("change", function() {
         var v = parseInt(numEl.value, 10);
         if (isNaN(v)) v = +rangeEl.value;
-        v = Math.max(1, v);
+        v = Math.max(1, Math.min(50, v));
         numEl.value = v;
         rangeEl.value = Math.min(8, v);
         P.col_divs[colIndex] = v;
@@ -2271,25 +2282,25 @@ function readControls() {
     document.getElementById("compRowOpts").hidden = !layoutRows;
     document.getElementById("compColOpts").hidden = !layoutCols;
 
-    P.gx = +document.getElementById("gx").value;
-    P.gy = +document.getElementById("gy").value;
-    P.gz = +document.getElementById("gz").value;
-    P.dx = +document.getElementById("dx").value;
-    P.dy = +document.getElementById("dy").value;
+    P.gx = getVal("gx", "gx_num");
+    P.gy = getVal("gy", "gy_num");
+    P.gz = getVal("gz", "gz_num");
+    P.dx = getVal("dx", "dx_num");
+    P.dy = getVal("dy", "dy_num");
 
-    var nr = +document.getElementById("num_rows").value;
+    var nr = getVal("num_rows", "num_rows_num");
     if (nr !== P.num_rows) {
       P.num_rows = nr;
       renderRowList();
     }
-    var nc = +document.getElementById("num_cols").value;
+    var nc = getVal("num_cols", "num_cols_num");
     if (nc !== P.num_cols) {
       P.num_cols = nc;
       renderColList();
     }
   } else {
-    P.plate_gx = +document.getElementById("plate_gx").value;
-    P.plate_gy = +document.getElementById("plate_gy").value;
+    P.plate_gx = getVal("plate_gx", "plate_gx_num");
+    P.plate_gy = getVal("plate_gy", "plate_gy_num");
     P.gx = P.plate_gx;
     P.gy = P.plate_gy;
   }
@@ -2451,7 +2462,7 @@ SLIDERS.forEach(function (s) {
     var v = parseInt(numEl.value, 10);
     if (!isNaN(v)) {
       var min = +rangeEl.min || 1;
-      var max = +rangeEl.max || 50;
+      var max = +rangeEl.max || 8;
       rangeEl.value = Math.max(min, Math.min(max, v));
     }
     onChange(s.refit);
@@ -2459,11 +2470,11 @@ SLIDERS.forEach(function (s) {
   numEl.addEventListener("change", function () {
     var v = parseInt(numEl.value, 10);
     if (isNaN(v)) v = +rangeEl.value;
-    var min = +rangeEl.min || 1;
-    var max = +numEl.max || 100;
+    var min = 1;
+    var max = 50;
     v = Math.max(min, Math.min(max, v));
     numEl.value = v;
-    rangeEl.value = v;
+    rangeEl.value = Math.min(+rangeEl.max || 8, v);
     onChange(s.refit);
   });
 });
