@@ -639,8 +639,11 @@ canvas.dragging { cursor:grabbing; }
           <input type="range" id="plate_mm_y" min="42" max="600" step="1" value="126">
           <input type="number" id="plate_mm_y_num" min="10" max="2000" step="1" value="126">
         </div>
-        <div id="plateFitInfo" style="font-size:11.5px; color:var(--muted); margin-top:2px; margin-bottom:8px">
-          Fits 4 &times; 3 units (167.5 &times; 125.5 mm)
+        <div id="plateFitInfo" style="font-size:11.5px; color:var(--muted); margin-top:2px; margin-bottom:6px">
+          Fits 4 &times; 3 units (168 &times; 126 mm)
+        </div>
+        <div class="btns" style="margin-bottom:8px">
+          <button type="button" id="btnPlateExact" style="width:100%">Add edge padding for exact size</button>
         </div>
       </div>
 
@@ -1378,6 +1381,8 @@ function planAxisStaggered(trace, bedNorm, startPad, endPad) {
 
 // Full segmentation plan for a gx x gy plate on a given bed.
 function planPlate(p) {
+  var d = derivePlate(p);
+  var padX = d.padX || 0, padY = d.padY || 0;
   var tx = [], ty = [], i;
   for (i = 0; i < p.gx; i++) tx.push(1);
   for (i = 0; i < p.gy; i++) ty.push(1);
@@ -1385,15 +1390,25 @@ function planPlate(p) {
   var margin = p.plateConnectors ? 3.5 : 0;
   var bx = Math.max(1.01, ((p.bedX || 1e6) - margin) / GRID);
   var by = Math.max(1.01, ((p.bedY || 1e6) - margin) / GRID);
-  var cols = planAxisIdeal(tx, bx);
-  var rows = planAxisStaggered(ty, by);
+  var cols = planAxisIdeal(tx, bx, padX / GRID, padX / GRID);
+  var rows = planAxisStaggered(ty, by, padY / GRID, padY / GRID);
   return { cols: cols, rows: rows, tx: tx, ty: ty };
 }
 
 function derivePlate(p) {
   var base = Math.max(0, p.plateBase || 0);
+  var padX = 0, padY = 0;
+  if (p.plateExact && p.plate_size_mode === "mm") {
+    var rawPadX = (p.plate_mm_x - p.gx * GRID) / 2;
+    var rawPadY = (p.plate_mm_y - p.gy * GRID) / 2;
+    if (rawPadX > 0) padX = Math.round(rawPadX * 100) / 100;
+    if (rawPadY > 0) padY = Math.round(rawPadY * 100) / 100;
+  }
   return {
-    OX: p.gx * GRID, OY: p.gy * GRID,
+    OX: p.gx * GRID + 2 * padX,
+    OY: p.gy * GRID + 2 * padY,
+    padX: padX,
+    padY: padY,
     base: base,
     H: base + PLATE_PROFILE_H,
     cornerR: p.plateR === undefined ? PLATE_CORNER_R : p.plateR,
@@ -1405,8 +1420,11 @@ function derivePlate(p) {
 // puzzle connectors spliced into every edge that abuts a neighbouring segment.
 function segmentOutline(p, d, i0, i1, j0, j1, conn, nc, dx, dy) {
   var R = d.cornerR;
-  var x0 = (i0 - p.gx / 2) * GRID + dx, x1 = (i1 - p.gx / 2) * GRID + dx;
-  var y0 = (j0 - p.gy / 2) * GRID + dy, y1 = (j1 - p.gy / 2) * GRID + dy;
+  var padX = d.padX || 0, padY = d.padY || 0;
+  var x0 = (i0 - p.gx / 2) * GRID + dx - (i0 === 0 ? padX : 0);
+  var x1 = (i1 - p.gx / 2) * GRID + dx + (i1 === p.gx ? padX : 0);
+  var y0 = (j0 - p.gy / 2) * GRID + dy - (j0 === 0 ? padY : 0);
+  var y1 = (j1 - p.gy / 2) * GRID + dy + (j1 === p.gy ? padY : 0);
   var rSW = (i0 === 0 && j0 === 0) ? R : 0;
   var rSE = (i1 === p.gx && j0 === 0) ? R : 0;
   var rNE = (i1 === p.gx && j1 === p.gy) ? R : 0;
@@ -2372,11 +2390,27 @@ function readControls() {
       if (mmYNumEl) mmYNumEl.value = P.plate_mm_y;
     }
 
+    var btnExact = document.getElementById("btnPlateExact");
+    var dp = derivePlate(P);
+    if (btnExact) {
+      if (P.plateExact && isMm && (dp.padX > 0 || dp.padY > 0)) {
+        btnExact.className = "primary";
+        btnExact.textContent = "✓ Edge padding active (exact " + fmt(dp.OX) + " × " + fmt(dp.OY) + " mm)";
+      } else {
+        btnExact.className = "";
+        var remX = Math.max(0, Math.round((P.plate_mm_x - P.plate_gx * GRID) * 10) / 10);
+        var remY = Math.max(0, Math.round((P.plate_mm_y - P.plate_gy * GRID) * 10) / 10);
+        btnExact.textContent = "Add edge padding for exact size (+" + remX + "×" + remY + " mm)";
+      }
+    }
+
     var fitInfo = document.getElementById("plateFitInfo");
     if (fitInfo) {
-      var actualOX = P.plate_gx * GRID - GAP;
-      var actualOY = P.plate_gy * GRID - GAP;
-      fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units (" + fmt(actualOX) + " × " + fmt(actualOY) + " mm)";
+      if (P.plateExact && isMm && (dp.padX > 0 || dp.padY > 0)) {
+        fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units + edge pads (" + fmt(dp.padX) + " mm X, " + fmt(dp.padY) + " mm Y) = exact " + fmt(dp.OX) + " × " + fmt(dp.OY) + " mm";
+      } else {
+        fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units (" + fmt(P.plate_gx * GRID) + " × " + fmt(P.plate_gy * GRID) + " mm)";
+      }
     }
 
     P.gx = P.plate_gx;
@@ -2450,7 +2484,11 @@ function updatePlateReadout() {
   document.getElementById("s_tall").textContent = fmt(d.H) + " mm";
   var sizeText = P.gx + " × " + P.gy + " cells";
   if (P.plate_size_mode === "mm") {
-    sizeText += " (target " + P.plate_mm_x + " × " + P.plate_mm_y + " mm)";
+    if (d.padX > 0 || d.padY > 0) {
+      sizeText += " + edge padding (exact " + fmt(d.OX) + " × " + fmt(d.OY) + " mm)";
+    } else {
+      sizeText += " (target " + P.plate_mm_x + " × " + P.plate_mm_y + " mm)";
+    }
   }
   document.getElementById("s_comp").textContent = sizeText;
   var pl = planPlate(P), np = 0, sx;
@@ -2480,8 +2518,13 @@ function command() {
 }
 
 function stem() {
-  if (P.mode === "plate")
+  if (P.mode === "plate") {
+    var dp = derivePlate(P);
+    if (dp.padX > 0 || dp.padY > 0) {
+      return "gridfinity_baseplate_" + P.gx + "x" + P.gy + "_exact_" + Math.round(dp.OX) + "x" + Math.round(dp.OY) + "mm";
+    }
     return "gridfinity_baseplate_" + P.gx + "x" + P.gy;
+  }
   var compSuffix = "";
   if (P.comp_layout === "rows") {
     compSuffix = "_rows_" + (P.row_divs || []).join("-");
@@ -2566,6 +2609,14 @@ FLOATS.concat(BOOLS).forEach(function (k) {
   el.addEventListener("input", function () { onChange(refit); });
   el.addEventListener("change", function () { onChange(refit); });
 });
+
+var btnExact = document.getElementById("btnPlateExact");
+if (btnExact) {
+  btnExact.addEventListener("click", function () {
+    P.plateExact = !P.plateExact;
+    onChange(true);
+  });
+}
 
 ["mode_bin", "mode_plate", "layout_grid", "layout_rows", "layout_cols", "plate_mode_units", "plate_mode_mm"].forEach(function (id) {
   var el = document.getElementById(id);
