@@ -228,8 +228,23 @@ canvas.dragging { cursor:grabbing; }
         <div id="plateFitInfo" style="font-size:11.5px; color:var(--muted); margin-top:2px; margin-bottom:6px">
           Fits 4 &times; 3 units (168 &times; 126 mm)
         </div>
-        <div class="btns" style="margin-bottom:8px">
+        <div class="btns" style="margin-bottom:6px">
           <button type="button" id="btnPlateExact" style="width:100%">Add edge padding for exact size</button>
+        </div>
+
+        <div id="plateBufferAlignOpts" hidden style="margin-top:6px; margin-bottom:8px">
+          <div style="font-size:11.5px; color:var(--muted); margin-bottom:3px">Width Buffer (X):</div>
+          <div class="modes submodes" style="margin-bottom:6px">
+            <label id="lbl_buf_x_left"><input type="radio" name="buf_x_align" id="buf_x_left" value="left"> Left</label>
+            <label id="lbl_buf_x_center" class="active"><input type="radio" name="buf_x_align" id="buf_x_center" value="center" checked> Centered</label>
+            <label id="lbl_buf_x_right"><input type="radio" name="buf_x_align" id="buf_x_right" value="right"> Right</label>
+          </div>
+          <div style="font-size:11.5px; color:var(--muted); margin-bottom:3px">Depth Buffer (Y):</div>
+          <div class="modes submodes">
+            <label id="lbl_buf_y_bottom"><input type="radio" name="buf_y_align" id="buf_y_bottom" value="bottom"> Bottom</label>
+            <label id="lbl_buf_y_center" class="active"><input type="radio" name="buf_y_align" id="buf_y_center" value="center" checked> Centered</label>
+            <label id="lbl_buf_y_top"><input type="radio" name="buf_y_align" id="buf_y_top" value="top"> Top</label>
+          </div>
         </div>
       </div>
 
@@ -968,7 +983,8 @@ function planAxisStaggered(trace, bedNorm, startPad, endPad) {
 // Full segmentation plan for a gx x gy plate on a given bed.
 function planPlate(p) {
   var d = derivePlate(p);
-  var padX = d.padX || 0, padY = d.padY || 0;
+  var padLeft = d.padLeft || 0, padRight = d.padRight || 0;
+  var padBottom = d.padBottom || 0, padTop = d.padTop || 0;
   var tx = [], ty = [], i;
   for (i = 0; i < p.gx; i++) tx.push(1);
   for (i = 0; i < p.gy; i++) ty.push(1);
@@ -976,25 +992,47 @@ function planPlate(p) {
   var margin = p.plateConnectors ? 3.5 : 0;
   var bx = Math.max(1.01, ((p.bedX || 1e6) - margin) / GRID);
   var by = Math.max(1.01, ((p.bedY || 1e6) - margin) / GRID);
-  var cols = planAxisIdeal(tx, bx, padX / GRID, padX / GRID);
-  var rows = planAxisStaggered(ty, by, padY / GRID, padY / GRID);
+  var cols = planAxisIdeal(tx, bx, padLeft / GRID, padRight / GRID);
+  var rows = planAxisStaggered(ty, by, padBottom / GRID, padTop / GRID);
   return { cols: cols, rows: rows, tx: tx, ty: ty };
 }
 
 function derivePlate(p) {
   var base = Math.max(0, p.plateBase || 0);
-  var padX = 0, padY = 0;
+  var padLeft = 0, padRight = 0, padBottom = 0, padTop = 0;
   if (p.plateExact && p.plate_size_mode === "mm") {
-    var rawPadX = (p.plate_mm_x - p.gx * GRID) / 2;
-    var rawPadY = (p.plate_mm_y - p.gy * GRID) / 2;
-    if (rawPadX > 0) padX = Math.round(rawPadX * 100) / 100;
-    if (rawPadY > 0) padY = Math.round(rawPadY * 100) / 100;
+    var rawRemX = Math.max(0, p.plate_mm_x - p.gx * GRID);
+    var rawRemY = Math.max(0, p.plate_mm_y - p.gy * GRID);
+    var remX = Math.round(rawRemX * 100) / 100;
+    var remY = Math.round(rawRemY * 100) / 100;
+
+    var alignX = p.buf_x_align || "center";
+    if (alignX === "left") {
+      padLeft = remX; padRight = 0;
+    } else if (alignX === "right") {
+      padLeft = 0; padRight = remX;
+    } else {
+      padLeft = Math.round((remX / 2) * 100) / 100;
+      padRight = Math.round((remX - padLeft) * 100) / 100;
+    }
+
+    var alignY = p.buf_y_align || "center";
+    if (alignY === "bottom") {
+      padBottom = remY; padTop = 0;
+    } else if (alignY === "top") {
+      padBottom = 0; padTop = remY;
+    } else {
+      padBottom = Math.round((remY / 2) * 100) / 100;
+      padTop = Math.round((remY - padBottom) * 100) / 100;
+    }
   }
   return {
-    OX: p.gx * GRID + 2 * padX,
-    OY: p.gy * GRID + 2 * padY,
-    padX: padX,
-    padY: padY,
+    OX: p.gx * GRID + padLeft + padRight,
+    OY: p.gy * GRID + padBottom + padTop,
+    padLeft: padLeft,
+    padRight: padRight,
+    padBottom: padBottom,
+    padTop: padTop,
     base: base,
     H: base + PLATE_PROFILE_H,
     cornerR: p.plateR === undefined ? PLATE_CORNER_R : p.plateR,
@@ -1006,11 +1044,12 @@ function derivePlate(p) {
 // puzzle connectors spliced into every edge that abuts a neighbouring segment.
 function segmentOutline(p, d, i0, i1, j0, j1, conn, nc, dx, dy) {
   var R = d.cornerR;
-  var padX = d.padX || 0, padY = d.padY || 0;
-  var x0 = (i0 - p.gx / 2) * GRID + dx - (i0 === 0 ? padX : 0);
-  var x1 = (i1 - p.gx / 2) * GRID + dx + (i1 === p.gx ? padX : 0);
-  var y0 = (j0 - p.gy / 2) * GRID + dy - (j0 === 0 ? padY : 0);
-  var y1 = (j1 - p.gy / 2) * GRID + dy + (j1 === p.gy ? padY : 0);
+  var padLeft = d.padLeft || 0, padRight = d.padRight || 0;
+  var padBottom = d.padBottom || 0, padTop = d.padTop || 0;
+  var x0 = (i0 - p.gx / 2) * GRID + dx - (i0 === 0 ? padLeft : 0);
+  var x1 = (i1 - p.gx / 2) * GRID + dx + (i1 === p.gx ? padRight : 0);
+  var y0 = (j0 - p.gy / 2) * GRID + dy - (j0 === 0 ? padBottom : 0);
+  var y1 = (j1 - p.gy / 2) * GRID + dy + (j1 === p.gy ? padTop : 0);
   var rSW = (i0 === 0 && j0 === 0) ? R : 0;
   var rSE = (i1 === p.gx && j0 === 0) ? R : 0;
   var rNE = (i1 === p.gx && j1 === p.gy) ? R : 0;
@@ -1749,6 +1788,9 @@ var P = Object.assign({}, DEFAULTS, {
   plate_mm_x: 168,
   plate_mm_y: 126,
   plate_gx: 4, plate_gy: 3,
+  plateExact: false,
+  buf_x_align: "center",
+  buf_y_align: "center",
   plateBase: 0, plateR: 4,
   bedX: 250, bedY: 220, plateGap: 0, plateConnectors: true
 });
@@ -1976,10 +2018,34 @@ function readControls() {
       if (mmYNumEl) mmYNumEl.value = P.plate_mm_y;
     }
 
+    var xAlign = "center";
+    if (document.getElementById("buf_x_left") && document.getElementById("buf_x_left").checked) xAlign = "left";
+    else if (document.getElementById("buf_x_right") && document.getElementById("buf_x_right").checked) xAlign = "right";
+    P.buf_x_align = xAlign;
+
+    var yAlign = "center";
+    if (document.getElementById("buf_y_bottom") && document.getElementById("buf_y_bottom").checked) yAlign = "bottom";
+    else if (document.getElementById("buf_y_top") && document.getElementById("buf_y_top").checked) yAlign = "top";
+    P.buf_y_align = yAlign;
+
+    ["buf_x_left", "buf_x_center", "buf_x_right"].forEach(function (id) {
+      var lbl = document.getElementById("lbl_" + id);
+      var el = document.getElementById(id);
+      if (lbl && el) lbl.className = el.checked ? "active" : "";
+    });
+    ["buf_y_bottom", "buf_y_center", "buf_y_top"].forEach(function (id) {
+      var lbl = document.getElementById("lbl_" + id);
+      var el = document.getElementById(id);
+      if (lbl && el) lbl.className = el.checked ? "active" : "";
+    });
+
+    var alignBox = document.getElementById("plateBufferAlignOpts");
+    if (alignBox) alignBox.hidden = !(P.plateExact && isMm);
+
     var btnExact = document.getElementById("btnPlateExact");
     var dp = derivePlate(P);
     if (btnExact) {
-      if (P.plateExact && isMm && (dp.padX > 0 || dp.padY > 0)) {
+      if (P.plateExact && isMm && (dp.padLeft > 0 || dp.padRight > 0 || dp.padBottom > 0 || dp.padTop > 0)) {
         btnExact.className = "primary";
         btnExact.textContent = "✓ Edge padding active (exact " + fmt(dp.OX) + " × " + fmt(dp.OY) + " mm)";
       } else {
@@ -1992,8 +2058,10 @@ function readControls() {
 
     var fitInfo = document.getElementById("plateFitInfo");
     if (fitInfo) {
-      if (P.plateExact && isMm && (dp.padX > 0 || dp.padY > 0)) {
-        fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units + edge pads (" + fmt(dp.padX) + " mm X, " + fmt(dp.padY) + " mm Y) = exact " + fmt(dp.OX) + " × " + fmt(dp.OY) + " mm";
+      if (P.plateExact && isMm && (dp.padLeft > 0 || dp.padRight > 0 || dp.padBottom > 0 || dp.padTop > 0)) {
+        var xDesc = dp.padLeft === dp.padRight ? ("±" + fmt(dp.padLeft) + " mm") : ("L: " + fmt(dp.padLeft) + " / R: " + fmt(dp.padRight) + " mm");
+        var yDesc = dp.padBottom === dp.padTop ? ("±" + fmt(dp.padBottom) + " mm") : ("B: " + fmt(dp.padBottom) + " / T: " + fmt(dp.padTop) + " mm");
+        fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units + buffer (X: " + xDesc + ", Y: " + yDesc + ") = exact " + fmt(dp.OX) + " × " + fmt(dp.OY) + " mm";
       } else {
         fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units (" + fmt(P.plate_gx * GRID) + " × " + fmt(P.plate_gy * GRID) + " mm)";
       }
@@ -2070,8 +2138,8 @@ function updatePlateReadout() {
   document.getElementById("s_tall").textContent = fmt(d.H) + " mm";
   var sizeText = P.gx + " × " + P.gy + " cells";
   if (P.plate_size_mode === "mm") {
-    if (d.padX > 0 || d.padY > 0) {
-      sizeText += " + edge padding (exact " + fmt(d.OX) + " × " + fmt(d.OY) + " mm)";
+    if (d.padLeft > 0 || d.padRight > 0 || d.padBottom > 0 || d.padTop > 0) {
+      sizeText += " + buffer (exact " + fmt(d.OX) + " × " + fmt(d.OY) + " mm)";
     } else {
       sizeText += " (target " + P.plate_mm_x + " × " + P.plate_mm_y + " mm)";
     }
@@ -2106,8 +2174,9 @@ function command() {
 function stem() {
   if (P.mode === "plate") {
     var dp = derivePlate(P);
-    if (dp.padX > 0 || dp.padY > 0) {
-      return "gridfinity_baseplate_" + P.gx + "x" + P.gy + "_exact_" + Math.round(dp.OX) + "x" + Math.round(dp.OY) + "mm";
+    if (dp.padLeft > 0 || dp.padRight > 0 || dp.padBottom > 0 || dp.padTop > 0) {
+      var alignSuffix = (P.buf_x_align !== "center" ? "_" + P.buf_x_align : "") + (P.buf_y_align !== "center" ? "_" + P.buf_y_align : "");
+      return "gridfinity_baseplate_" + P.gx + "x" + P.gy + "_exact_" + Math.round(dp.OX) + "x" + Math.round(dp.OY) + "mm" + alignSuffix;
     }
     return "gridfinity_baseplate_" + P.gx + "x" + P.gy;
   }
@@ -2204,9 +2273,10 @@ if (btnExact) {
   });
 }
 
-["mode_bin", "mode_plate", "layout_grid", "layout_rows", "layout_cols", "plate_mode_units", "plate_mode_mm"].forEach(function (id) {
+["mode_bin", "mode_plate", "layout_grid", "layout_rows", "layout_cols", "plate_mode_units", "plate_mode_mm",
+ "buf_x_left", "buf_x_center", "buf_x_right", "buf_y_bottom", "buf_y_center", "buf_y_top"].forEach(function (id) {
   var el = document.getElementById(id);
-  if (el) el.addEventListener("change", function () { onChange(id.startsWith("mode") || id.startsWith("plate_mode")); });
+  if (el) el.addEventListener("change", function () { onChange(id.startsWith("mode") || id.startsWith("plate_mode") || id.startsWith("buf_")); });
 });
 
 document.querySelectorAll(".views button").forEach(function (b) {
