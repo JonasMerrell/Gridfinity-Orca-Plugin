@@ -1,0 +1,1957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gridfinity Bin Configurator</title>
+<style>
+:root {
+  --bg:#f4f5f7; --panel:#fff; --ink:#1a1d21; --muted:#6b7280; --line:#e3e5e9;
+  --accent:#2f6f4e; --accent-ink:#fff; --code-bg:#f0f1f4;
+  --warn:#9a5b00; --warn-bg:#fdf3e2; --badge:#e8eaee;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#14161a; --panel:#1b1e23; --ink:#e8eaed; --muted:#9aa1ab; --line:#2b2f36;
+    --accent:#4c9c72; --accent-ink:#0d1512; --code-bg:#12151a;
+    --warn:#f0b866; --warn-bg:#2c2417; --badge:#262a31;
+  }
+}
+/* Inside OrcaSlicer the host injects --orca-* variables; adopt them. */
+html.orca-host {
+  --bg:var(--orca-bg); --panel:var(--orca-bg); --ink:var(--orca-fg);
+  --muted:var(--orca-muted); --line:var(--orca-border);
+  --accent:var(--orca-accent); --accent-ink:var(--orca-accent-fg);
+  --code-bg:var(--orca-border); --badge:var(--orca-border);
+}
+html.orca-host body { font:14px/1.45 var(--orca-font, ui-sans-serif, system-ui, sans-serif); }
+* { box-sizing:border-box; }
+html, body { height:100%; margin:0; }
+body {
+  font:14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color:var(--ink); background:var(--bg); -webkit-font-smoothing:antialiased;
+}
+.app { display:flex; height:100%; }
+.panel {
+  width:326px; flex:0 0 326px; background:var(--panel);
+  border-right:1px solid var(--line); overflow-y:auto; padding:18px 18px 28px;
+}
+.panel header { margin-bottom:18px; }
+.panel h1 { font-size:16px; margin:0 0 2px; letter-spacing:-0.01em; }
+.panel .sub { margin:0; color:var(--muted); font-size:12px; }
+.panel h2 {
+  font-size:11px; text-transform:uppercase; letter-spacing:.07em;
+  color:var(--muted); margin:0 0 10px; font-weight:600;
+}
+section { margin-bottom:20px; }
+.row { display:grid; grid-template-columns:1fr 112px 30px; align-items:center; gap:8px; margin-bottom:8px; }
+.row label { font-size:13px; }
+.row output { font-variant-numeric:tabular-nums; text-align:right; color:var(--muted); font-size:12px; }
+input[type=range] { width:100%; accent-color:var(--accent); }
+.num { display:grid; grid-template-columns:1fr 82px; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; }
+.num input {
+  width:100%; padding:5px 7px; font:inherit; font-size:13px;
+  border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink);
+}
+.check { display:flex; align-items:center; gap:9px; margin-bottom:7px; font-size:13px; }
+.check input { accent-color:var(--accent); width:15px; height:15px; }
+details { border-top:1px solid var(--line); padding-top:12px; }
+details summary {
+  cursor:pointer; font-size:11px; text-transform:uppercase; letter-spacing:.07em;
+  color:var(--muted); font-weight:600; margin-bottom:12px;
+}
+.stats { border-top:1px solid var(--line); padding-top:14px; font-size:12px; }
+.stats dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0; }
+.stats dt { color:var(--muted); }
+.stats dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; }
+.warn { margin-top:10px; padding:7px 9px; border-radius:6px; background:var(--warn-bg); color:var(--warn); font-size:12px; }
+.warn[hidden] { display:none; }
+pre#cmd {
+  background:var(--code-bg); border:1px solid var(--line); border-radius:6px;
+  padding:9px; font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-all;
+  margin:0 0 8px; color:var(--muted); max-height:132px; overflow-y:auto;
+}
+.modes { display:flex; gap:18px; }
+.modes .check { margin-bottom:0; }
+.btns { display:flex; gap:8px; flex-wrap:wrap; }
+.saved {
+  margin:0 0 10px; padding:7px 9px; border-radius:6px; font-size:11.5px;
+  background:var(--code-bg); color:var(--muted); word-break:break-all;
+}
+.saved[hidden] { display:none; }
+.bedrow { display:flex; align-items:center; gap:8px; margin:0 0 10px; }
+.bedrow[hidden] { display:none; }
+.bedrow span { font-size:11px; color:var(--muted); }
+.prog { margin:0 0 10px; }
+.prog[hidden] { display:none; }
+.prog .track {
+  height:5px; border-radius:3px; background:var(--code-bg); overflow:hidden;
+}
+.prog .fill {
+  height:100%; width:0; border-radius:3px; background:var(--accent);
+  transition:width .12s linear;
+}
+.prog .lbl {
+  display:flex; justify-content:space-between; gap:8px;
+  margin-top:5px; font-size:11.5px; color:var(--muted);
+}
+button {
+  font:inherit; font-size:12.5px; padding:7px 11px; cursor:pointer;
+  border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink);
+}
+button:hover:not(:disabled) { border-color:var(--muted); }
+button:disabled { opacity:.55; cursor:default; }
+button.primary { background:var(--accent); color:var(--accent-ink); border-color:transparent; }
+button.primary:hover:not(:disabled) { filter:brightness(1.08); }
+.stage { flex:1; position:relative; min-width:0; }
+canvas { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
+canvas.dragging { cursor:grabbing; }
+.views { position:absolute; top:14px; right:14px; display:flex; gap:6px; }
+.views button { padding:5px 10px; font-size:12px; background:var(--panel); opacity:.94; }
+.badge {
+  position:absolute; top:14px; left:14px; font-size:11.5px; padding:4px 10px;
+  border-radius:999px; background:var(--badge); color:var(--muted);
+}
+.badge.hi { background:var(--accent); color:var(--accent-ink); }
+.hint { position:absolute; left:14px; bottom:12px; color:var(--muted); font-size:11.5px; pointer-events:none; }
+.err { position:absolute; inset:0; display:grid; place-items:center; padding:40px; text-align:center; color:var(--muted); }
+.err[hidden] { display:none; }
+@media (max-width:760px) {
+  .app { flex-direction:column-reverse; }
+  .panel { width:auto; flex:1 1 auto; border-right:0; border-bottom:1px solid var(--line); }
+  .stage { flex:0 0 46vh; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <header>
+      <h1>Gridfinity Bin</h1>
+      <p class="sub">Geometry matches <code>gridfinity_bin.scad</code></p>
+    </header>
+
+    <section>
+      <h2>Model</h2>
+      <div class="modes">
+        <label class="check"><input type="radio" name="mode" id="mode_bin" value="bin" checked> Bin</label>
+        <label class="check"><input type="radio" name="mode" id="mode_plate" value="plate"> Baseplate</label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Size</h2>
+      <div class="row"><label for="gx">Width</label><input type="range" id="gx" min="1" max="8" step="1" value="2"><output id="gx_o"></output></div>
+      <div class="row"><label for="gy">Depth</label><input type="range" id="gy" min="1" max="8" step="1" value="1"><output id="gy_o"></output></div>
+      <div class="row" id="row_gz"><label for="gz">Height</label><input type="range" id="gz" min="1" max="20" step="1" value="3"><output id="gz_o"></output></div>
+    </section>
+
+    <section id="plateOpts" hidden>
+      <h2>Baseplate</h2>
+      <div class="num"><label for="plateBase">Solid base (mm)</label><input type="number" id="plateBase" min="0" max="20" step="0.5" value="0"></div>
+      <div class="num"><label for="plateR">Corner radius</label><input type="number" id="plateR" min="0" max="12" step="0.5" value="4"></div>
+      <div class="num"><label for="bedX">Bed X (mm)</label><input type="number" id="bedX" min="42" max="2000" step="5" value="250"></div>
+      <div class="num"><label for="bedY">Bed Y (mm)</label><input type="number" id="bedY" min="42" max="2000" step="5" value="220"></div>
+      <div class="num"><label for="plateGap">Explode gap</label><input type="number" id="plateGap" min="0" max="60" step="1" value="0"></div>
+      <div id="bedRow" class="bedrow" hidden>
+        <button id="btnBed" type="button">Use printer bed</button>
+        <span id="bedFrom"></span>
+      </div>
+      <label class="check"><input type="checkbox" id="plateConnectors" checked> Puzzle connectors</label>
+    </section>
+
+    <section id="binOpts">
+      <h2>Compartments</h2>
+      <div class="row"><label for="dx">Across X</label><input type="range" id="dx" min="1" max="8" step="1" value="2"><output id="dx_o"></output></div>
+      <div class="row"><label for="dy">Across Y</label><input type="range" id="dy" min="1" max="8" step="1" value="1"><output id="dy_o"></output></div>
+    </section>
+
+    <section id="binFeatures">
+      <h2>Features</h2>
+      <label class="check"><input type="checkbox" id="lip" checked> Stacking lip</label>
+      <label class="check"><input type="checkbox" id="scoop" checked> Finger scoop</label>
+      <label class="check"><input type="checkbox" id="label"> Label tab</label>
+      <label class="check"><input type="checkbox" id="mag"> Magnet holes (6&times;2&nbsp;mm)</label>
+      <label class="check"><input type="checkbox" id="screw"> Screw holes (M3)</label>
+    </section>
+
+    <details>
+      <summary>Advanced</summary>
+      <div class="num"><label for="wall">Wall (mm)</label><input type="number" id="wall" min="0.4" max="5" step="0.1" value="1.2"></div>
+      <div class="num"><label for="floorT">Floor (mm)</label><input type="number" id="floorT" min="0.4" max="10" step="0.1" value="1.4"></div>
+      <div class="num"><label for="scoopR">Scoop radius</label><input type="number" id="scoopR" min="0" max="30" step="0.5" value="6"></div>
+      <div class="num"><label for="labelD">Label depth</label><input type="number" id="labelD" min="0" max="40" step="0.5" value="12"></div>
+      <div class="num"><label for="fillet">Inner fillet</label><input type="number" id="fillet" min="0" max="5" step="0.1" value="0.8"></div>
+    </details>
+
+    <section class="stats">
+      <h2>Result</h2>
+      <dl>
+        <dt>Footprint</dt><dd id="s_foot"></dd>
+        <dt>Total height</dt><dd id="s_tall"></dd>
+        <dt>Compartment</dt><dd id="s_comp"></dd>
+        <dt>Usable depth</dt><dd id="s_depth"></dd>
+        <dt>Triangles</dt><dd id="s_tris"></dd>
+      </dl>
+      <div class="warn" id="s_warn" hidden></div>
+    </section>
+
+    <section>
+      <h2>Output</h2>
+      <div class="btns" style="margin-bottom:10px">
+        <button class="primary" id="btnRender">Render</button>
+        <button id="btnStl">Export STL</button>
+      </div>
+      <label class="check" id="toPlateRow" hidden style="margin-bottom:10px">
+        <input type="checkbox" id="toPlate" checked> Add to build plate after export
+      </label>
+      <div id="prog" class="prog" hidden>
+        <div class="track"><div class="fill" id="progFill"></div></div>
+        <div class="lbl"><span id="progStage"></span><span id="progPct"></span></div>
+      </div>
+      <div id="saved" class="saved" hidden></div>
+      <pre id="cmd"></pre>
+      <div class="btns"><button id="copyCmd">Copy OpenSCAD command</button></div>
+    </section>
+  </aside>
+
+  <main class="stage">
+    <canvas id="gl"></canvas>
+    <div class="badge" id="badge">Preview</div>
+    <div class="views">
+      <button data-view="iso">Iso</button>
+      <button data-view="front">Front</button>
+      <button data-view="top">Top</button>
+      <button data-view="under">Under</button>
+    </div>
+    <div class="hint">drag to orbit &middot; scroll to zoom &middot; shift-drag to pan</div>
+    <div class="err" id="err" hidden></div>
+  </main>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   Gridfinity bin geometry -- mirrors gridfinity_bin.scad
+   Builds an exact triangle mesh (no CSG): the bin is emitted as a set of
+   closed solids whose union is the bin. Coincident interior faces are
+   always back-to-back, so back-face culling hides them.
+   ===================================================================== */
+
+/* ---- specification constants (mm) ---- */
+var GRID = 42, UNIT_Z = 7, GAP = 0.5;
+var FOOT_TOP = GRID - GAP, R_TOP = 3.75;
+var CH_UPPER = 2.15, H_MID = 1.8, CH_LOWER = 0.8;
+var BASE_H = CH_LOWER + H_MID + CH_UPPER;          // 4.75
+var FOOT_MID = FOOT_TOP - 2 * CH_UPPER;            // 37.20
+var R_MID = R_TOP - CH_UPPER;                      //  1.60
+var FOOT_BOT = FOOT_MID - 2 * CH_LOWER;            // 35.60
+var R_BOT = R_MID - CH_LOWER;                      //  0.80
+var LIP_CLEAR = 0.25;
+var LIP_INSET = CH_UPPER - LIP_CLEAR;              //  1.90
+var LIP_TAPER = 0.70;
+var LIP_H = CH_LOWER + H_MID + LIP_TAPER;          //  3.30
+var MAGNET_R = 3.25, MAGNET_H = 2.4;
+var SCREW_R = 1.5, SCREW_H = 6.0, HOLE_OFF = 13;
+
+var DEFAULTS = {
+  gx: 2, gy: 1, gz: 3, dx: 2, dy: 1,
+  lip: true, scoop: true, label: false, mag: false, screw: false,
+  wall: 1.2, floorT: 1.4, scoopR: 6, labelD: 12, fillet: 0.8
+};
+
+function derive(p) {
+  var OX = p.gx * GRID - GAP;
+  var OY = p.gy * GRID - GAP;
+  var H_BODY = p.gz * UNIT_Z;
+  var FLOOR = BASE_H + (p.screw ? Math.max(p.floorT, SCREW_H - BASE_H + 0.8)
+                                : p.floorT);
+  var IW = OX - 2 * p.wall, ID = OY - 2 * p.wall;
+  var CW = (IW - (p.dx - 1) * p.wall) / p.dx;
+  var CD = (ID - (p.dy - 1) * p.wall) / p.dy;
+  var R_IN = Math.max(0, Math.min(R_TOP - p.wall, CW / 2 - 0.01, CD / 2 - 0.01));
+  var depth = H_BODY - FLOOR;
+  var fillet = Math.max(0, Math.min(p.fillet, CW / 2 - 0.01, CD / 2 - 0.01, depth));
+  var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, CD - 2 * fillet, depth)) : 0;
+  var labelD = p.label ? Math.max(0, Math.min(p.labelD, CD - 1, depth)) : 0;
+  return {
+    OX: OX, OY: OY, H_BODY: H_BODY, FLOOR: FLOOR, IW: IW, ID: ID,
+    CW: CW, CD: CD, R_IN: R_IN, depth: depth, fillet: fillet,
+    scoopR: scoopR, labelD: labelD,
+    TOP: H_BODY + (p.lip ? LIP_H : 0),
+    support: Math.max(0, LIP_INSET - p.wall),
+    pitchX: CW + p.wall, pitchY: CD + p.wall,
+    valid: CW > 0.2 && CD > 0.2 && depth > 0.2
+  };
+}
+
+/* =====================================================================
+   2D loops
+   ===================================================================== */
+
+// Rounded rectangle, counter-clockwise, 4*(n+1) points.
+function rrLoop(sx, sy, r, n) {
+  r = Math.max(0, Math.min(r, sx / 2, sy / 2));
+  var X = sx / 2 - r, Y = sy / 2 - r, pts = [];
+  var c = [[X, -Y, -Math.PI / 2], [X, Y, 0], [-X, Y, Math.PI / 2], [-X, -Y, Math.PI]];
+  for (var i = 0; i < 4; i++) {
+    for (var k = 0; k <= n; k++) {
+      var a = c[i][2] + (Math.PI / 2) * k / n;
+      pts.push([c[i][0] + r * Math.cos(a), c[i][1] + r * Math.sin(a)]);
+    }
+  }
+  return pts;
+}
+
+function circleLoop(cx, cy, r, n) {           // counter-clockwise
+  var pts = [];
+  for (var k = 0; k < n; k++) {
+    var a = 2 * Math.PI * k / n;
+    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  return pts;
+}
+
+function offsetLoop(pts, dx, dy) {
+  return pts.map(function (p) { return [p[0] + dx, p[1] + dy]; });
+}
+
+function reverseLoop(pts) { return pts.slice().reverse(); }
+
+/* Drop points that repeat within tol.  The connector profiles come from an
+   SVG and carry a few 5e-6 mm duplicates at the path ends; left in, they
+   trianglulate to slivers that the mesh then culls, leaving pinholes. */
+function dedupeLoop(pts, tol) {
+  var out = [];
+  for (var i = 0; i < pts.length; i++) {
+    var q = out.length ? out[out.length - 1] : pts[pts.length - 1];
+    if (Math.abs(pts[i][0] - q[0]) > tol || Math.abs(pts[i][1] - q[1]) > tol) out.push(pts[i]);
+  }
+  return out;
+}
+
+// Outward normal per point; tolerates repeated points (zero-radius corners).
+function loopNormals(pts) {
+  var n = pts.length, out = [];
+  for (var i = 0; i < n; i++) {
+    var a = null, b = null;
+    for (var k = 1; k < n; k++) {
+      var q = pts[(i - k + n) % n];
+      if (Math.abs(q[0] - pts[i][0]) > 1e-9 || Math.abs(q[1] - pts[i][1]) > 1e-9) { a = q; break; }
+    }
+    for (var k2 = 1; k2 < n; k2++) {
+      var q2 = pts[(i + k2) % n];
+      if (Math.abs(q2[0] - pts[i][0]) > 1e-9 || Math.abs(q2[1] - pts[i][1]) > 1e-9) { b = q2; break; }
+    }
+    if (!a || !b) { out.push([1, 0]); continue; }
+    var tx = b[0] - a[0], ty = b[1] - a[1];
+    var l = Math.hypot(tx, ty) || 1;
+    out.push([ty / l, -tx / l]);
+  }
+  return out;
+}
+
+/* =====================================================================
+   Triangulation: ear clipping with hole bridging (Eberly's bridge)
+   ===================================================================== */
+
+function samePt(p, q) {
+  return Math.abs(p[0] - q[0]) < 1e-9 && Math.abs(p[1] - q[1]) < 1e-9;
+}
+
+function area2(a, b, c) {
+  return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+function signedArea(poly) {
+  var s = 0;
+  for (var i = 0, n = poly.length; i < n; i++) {
+    var a = poly[i], b = poly[(i + 1) % n];
+    s += a[0] * b[1] - b[0] * a[1];
+  }
+  return s / 2;
+}
+
+function inTriangle(p, a, b, c) {
+  var d1 = area2(a, b, p), d2 = area2(b, c, p), d3 = area2(c, a, p);
+  return d1 >= -1e-12 && d2 >= -1e-12 && d3 >= -1e-12;
+}
+
+/* Hole bridging follows the approach used by earcut: for each hole (processed
+   left to right) cast a ray from its left-most vertex toward -x, take the
+   nearest edge crossing, then refine to a reflex vertex that is visible from
+   the hole. Sign convention here matches earcut: eArea < 0 means convex/CCW. */
+
+function eArea(p, q, r) { return -area2(p, q, r); }
+
+function ptInTri(ax, ay, bx, by, cx, cy, px, py) {
+  return (cx - px) * (ay - py) - (ax - px) * (cy - py) >= 0 &&
+         (ax - px) * (by - py) - (bx - px) * (ay - py) >= 0 &&
+         (bx - px) * (cy - py) - (cx - px) * (by - py) >= 0;
+}
+
+function locallyInside(poly, i, b) {
+  var n = poly.length;
+  var a = poly[i], prev = poly[(i - 1 + n) % n], next = poly[(i + 1) % n];
+  return eArea(prev, a, next) < 0
+    ? eArea(a, b, next) >= 0 && eArea(a, prev, b) >= 0
+    : eArea(a, b, prev) < 0 || eArea(a, next, b) < 0;
+}
+
+function findHoleBridge(poly, hx, hy) {
+  var n = poly.length, qx = -Infinity, m = -1, i;
+  for (i = 0; i < n; i++) {
+    var p = poly[i], pn = poly[(i + 1) % n];
+    if (hy <= p[1] && hy >= pn[1] && pn[1] !== p[1]) {
+      var x = p[0] + (hy - p[1]) * (pn[0] - p[0]) / (pn[1] - p[1]);
+      if (x <= hx && x > qx) {
+        qx = x;
+        m = p[0] < pn[0] ? i : (i + 1) % n;
+        if (x === hx) return m;
+      }
+    }
+  }
+  if (m < 0) return -1;
+
+  var mx = poly[m][0], my = poly[m][1], tanMin = Infinity, best = m;
+  for (i = 0; i < n; i++) {
+    var v = poly[i];
+    if (hx >= v[0] && v[0] >= mx && hx !== v[0] &&
+        ptInTri(hy < my ? hx : qx, hy, mx, my, hy < my ? qx : hx, hy, v[0], v[1])) {
+      var tan = Math.abs(hy - v[1]) / (hx - v[0]);
+      if (locallyInside(poly, i, [hx, hy]) &&
+          (tan < tanMin || (tan === tanMin && v[0] > poly[best][0]))) {
+        best = i; tanMin = tan;
+      }
+    }
+  }
+  return best;
+}
+
+// Splice one clockwise hole into the counter-clockwise polygon.
+function bridgeHole(poly, hole) {
+  var li = 0, i;
+  for (i = 1; i < hole.length; i++) if (hole[i][0] < hole[li][0]) li = i;
+  var target = findHoleBridge(poly, hole[li][0], hole[li][1]);
+  if (target < 0) return null;
+  var rot = hole.slice(li).concat(hole.slice(0, li));
+  return poly.slice(0, target + 1)
+             .concat(rot, [rot[0]], [poly[target]], poly.slice(target + 1));
+}
+
+function earClip(poly) {
+  var n = poly.length;
+  if (n < 3) return [];
+  var idx = [], i;
+  for (i = 0; i < n; i++) idx.push(i);
+  var tris = [], relax = 0;
+
+  while (idx.length > 3) {
+    var m = idx.length, found = -1, bestArea = 0;
+    for (var k = 0; k < m; k++) {
+      var i0 = idx[(k - 1 + m) % m], i1 = idx[k], i2 = idx[(k + 1) % m];
+      var a = poly[i0], b = poly[i1], c = poly[i2];
+      var ar = area2(a, b, c);
+      if (ar <= 1e-10) continue;
+      var ok = true;
+      if (relax === 0) {
+        for (var j = 0; j < m; j++) {
+          var t = idx[j];
+          if (t === i0 || t === i1 || t === i2) continue;
+          var q = poly[t];
+          // a duplicated bridge vertex sits exactly on a corner: not a blocker
+          if (samePt(q, a) || samePt(q, b) || samePt(q, c)) continue;
+          if (inTriangle(q, a, b, c)) { ok = false; break; }
+        }
+      }
+      if (!ok) continue;
+      if (relax === 0) { found = k; break; }
+      if (ar > bestArea) { bestArea = ar; found = k; }
+    }
+    if (found < 0) {
+      if (relax === 0) { relax = 1; continue; }   // retry ignoring containment
+      break;                                      // unrecoverable
+    }
+    var mm = idx.length;
+    tris.push([idx[(found - 1 + mm) % mm], idx[found], idx[(found + 1) % mm]]);
+    idx.splice(found, 1);
+    relax = 0;
+  }
+  if (idx.length === 3) tris.push([idx[0], idx[1], idx[2]]);
+  return tris;
+}
+
+// outer: CCW. holes: array of loops (any winding). Returns {pts, tris}.
+function triangulate(outer, holes) {
+  var poly = signedArea(outer) < 0 ? reverseLoop(outer) : outer.slice();
+  if (holes && holes.length) {
+    var hs = holes.map(function (h) {
+      return signedArea(h) > 0 ? reverseLoop(h) : h.slice();     // holes clockwise
+    });
+    hs.sort(function (A, B) {
+      var ax = Infinity, bx = Infinity, i;
+      for (i = 0; i < A.length; i++) if (A[i][0] < ax) ax = A[i][0];
+      for (i = 0; i < B.length; i++) if (B[i][0] < bx) bx = B[i][0];
+      return ax - bx;
+    });
+    for (var i = 0; i < hs.length; i++) {
+      var next = bridgeHole(poly, hs[i]);
+      if (next) poly = next;
+    }
+  }
+  return { pts: poly, tris: earClip(poly) };
+}
+
+/* =====================================================================
+   Mesh accumulation
+   ===================================================================== */
+
+function Mesh() { this.pos = []; this.nrm = []; }
+
+Mesh.prototype.tri = function (p0, p1, p2, n0, n1, n2) {
+  // drop degenerate triangles so the STL stays clean
+  var ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+  var vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
+  var cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+  if (cx * cx + cy * cy + cz * cz < 1e-14) return;
+  this.pos.push(p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]);
+  this.nrm.push(n0[0], n0[1], n0[2], n1[0], n1[1], n1[2], n2[0], n2[1], n2[2]);
+};
+
+Mesh.prototype.count = function () { return this.pos.length / 9; };
+
+function norm3(v) {
+  var l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+/* ---- band between two corresponding loops at two heights ---- */
+function addBand(mesh, la, za, lb, zb, flip) {
+  var n = la.length;
+  if (n !== lb.length) throw new Error("loop mismatch " + n + " vs " + lb.length);
+  var na = loopNormals(la), dz = zb - za;
+  var N = [];
+  for (var i = 0; i < n; i++) {
+    var e = (lb[i][0] - la[i][0]) * na[i][0] + (lb[i][1] - la[i][1]) * na[i][1];
+    var v = norm3([na[i][0] * dz, na[i][1] * dz, -e]);
+    N.push(flip ? [-v[0], -v[1], -v[2]] : v);
+  }
+  for (var i2 = 0; i2 < n; i2++) {
+    var j = (i2 + 1) % n;
+    var A = [la[i2][0], la[i2][1], za], B = [la[j][0], la[j][1], za];
+    var C = [lb[j][0], lb[j][1], zb], D = [lb[i2][0], lb[i2][1], zb];
+    if (flip) {
+      mesh.tri(A, C, B, N[i2], N[j], N[j]);
+      mesh.tri(A, D, C, N[i2], N[i2], N[j]);
+    } else {
+      mesh.tri(A, B, C, N[i2], N[j], N[j]);
+      mesh.tri(A, C, D, N[i2], N[j], N[i2]);
+    }
+  }
+}
+
+/* ---- flat cap at height z; up=true faces +z ---- */
+function addCap(mesh, outer, holes, z, up) {
+  var t = triangulate(outer, holes);
+  var nv = up ? [0, 0, 1] : [0, 0, -1];
+  for (var i = 0; i < t.tris.length; i++) {
+    var a = t.pts[t.tris[i][0]], b = t.pts[t.tris[i][1]], c = t.pts[t.tris[i][2]];
+    var A = [a[0], a[1], z], B = [b[0], b[1], z], C = [c[0], c[1], z];
+    if (up) mesh.tri(A, B, C, nv, nv, nv);
+    else mesh.tri(A, C, B, nv, nv, nv);
+  }
+}
+
+/* ---- closed solid from a stack of levels ----
+   levels: [{loop, z, holes}] -- holes only used on the end caps          */
+function addSolid(mesh, levels, capHolesBottom, capHolesTop) {
+  for (var i = 0; i + 1 < levels.length; i++)
+    addBand(mesh, levels[i].loop, levels[i].z, levels[i + 1].loop, levels[i + 1].z, false);
+  addCap(mesh, levels[0].loop, capHolesBottom || [], levels[0].z, false);
+  var top = levels[levels.length - 1];
+  addCap(mesh, top.loop, capHolesTop || [], top.z, true);
+}
+
+/* ---- inward-facing column (a hole through a solid) ---- */
+function addHoleWalls(mesh, levels) {
+  for (var i = 0; i + 1 < levels.length; i++)
+    addBand(mesh, levels[i].loop, levels[i].z, levels[i + 1].loop, levels[i + 1].z, true);
+}
+
+/* ---- prism swept along X from a (y,z) cross-section ---- */
+function addPrismX(mesh, section, x0, x1) {
+  var n = section.length;
+  var poly = signedArea(section) < 0 ? reverseLoop(section) : section.slice();
+  var nn = loopNormals(poly);
+  for (var i = 0; i < n; i++) {
+    var j = (i + 1) % n;
+    var a = poly[i], b = poly[j];
+    var Na = [0, nn[i][0], nn[i][1]], Nb = [0, nn[j][0], nn[j][1]];
+    var P0 = [x0, a[0], a[1]], P1 = [x1, a[0], a[1]];
+    var P2 = [x1, b[0], b[1]], P3 = [x0, b[0], b[1]];
+    mesh.tri(P0, P2, P1, Na, Nb, Na);
+    mesh.tri(P0, P3, P2, Na, Nb, Nb);
+  }
+  var t = triangulate(poly, []);
+  for (var k = 0; k < t.tris.length; k++) {
+    var A = t.pts[t.tris[k][0]], B = t.pts[t.tris[k][1]], C = t.pts[t.tris[k][2]];
+    var nA = [-1, 0, 0], nB = [1, 0, 0];
+    mesh.tri([x0, A[0], A[1]], [x0, C[0], C[1]], [x0, B[0], B[1]], nA, nA, nA);
+    mesh.tri([x1, A[0], A[1]], [x1, B[0], B[1]], [x1, C[0], C[1]], nB, nB, nB);
+  }
+}
+
+/* =====================================================================
+   Baseplate (GridFlock-compatible)
+   Socket profile is the Gridfinity baseplate socket: 2.15 chamfer, 1.8
+   straight, 0.7 chamfer, 4.65 mm deep, matching GridFlock's
+   _profile_height_raw.
+   ===================================================================== */
+/* Connector edge profiles, precomputed from GridFlock's puzzle.svg.
+   Each is the symmetric full connector that straddles one cell corner, in a
+   local frame where +x points out of the plate and +y runs along the seam.
+   Male protrudes 1.18 mm; female bites 1.26 mm inward. */
+var CONNECTOR = {
+  male: [[0,-3.28748], [0.065511,-3.29768], [-0.70929,-1.21468], [-0.608896,-0.678896], [-0.093195,-0.752896], [0.464406,-1.4506], [0.874306,-1.4937], [1.18001,-1.1057], [1.18001,0], [1.18001,1.1057], [0.874306,1.4937], [0.464406,1.4506], [-0.093195,0.752896], [-0.608896,0.678896], [-0.70929,1.21468], [0.065511,3.29768], [0,3.28748]],
+  female: [[0,-3.0175], [-5e-06,-3.0175], [0.573896,-1.32], [0.472895,-0.964296], [0.067495,-1.0136], [-0.257606,-1.4464], [-0.570006,-1.6145], [-0.795706,-1.607], [-1.25818,-1.08018], [-1.24837,0], [-1.25818,1.08018], [-0.795706,1.607], [-0.570006,1.6145], [-0.257606,1.4464], [0.067495,1.0136], [0.472895,0.964296], [0.573896,1.32], [-5e-06,3.0175], [0,3.0175]],
+  // Half a male tab, for the end of a seam.  It overhangs the corner by
+  // 0.3 mm and its root runs back 4 mm along the perpendicular edge, taking
+  // the corner with it -- that is what GridFlock's hull-and-circle pass comes
+  // to.  The female half instead stops at the corner: it is a cut, and past
+  // the corner there is nothing to remove.
+  maleCap: [[-4,0], [1.18001,-0.300006], [1.18001,1.1057], [0.874306,1.4937], [0.464406,1.4506], [-0.093195,0.752896], [-0.608896,0.678896], [-0.70929,1.21468], [0.065511,3.29768], [0,3.28748]],
+};
+
+/* Half a connector for the end of a seam, walking in +y.  dir -1 mirrors it
+   for the far end of the edge.  The female half stops at the corner: it is a
+   cut, and past the corner there is nothing to remove. */
+function capProfile(male, dir) {
+  var src = male ? CONNECTOR.maleCap
+                 : CONNECTOR.female.filter(function (q) { return q[1] >= 0; });
+  var out = src.map(function (q) { return [q[0], dir * q[1]]; });
+  return dir > 0 ? out : out.reverse();
+}
+
+// Sockets are exactly cell-sized, so they touch each other and the plate edge.
+// Pulling the top rim in by a hair keeps the top face triangulable.
+var SOCKET_EPS = 0.002;
+
+var PLATE_PROFILE_H = 4.65;
+var PLATE_CORNER_R = 4;
+var SOCKET = [                       // depth below the top face, size, radius
+  [0.00, 42.0, 4.00],
+  [2.15, 37.7, 1.85],
+  [3.95, 37.7, 1.85],
+  [4.65, 36.3, 1.15]
+];
+
+// Rounded rectangle with an independent radius per corner, counter-clockwise.
+// Corner order matches rrLoop: (+x,-y), (+x,+y), (-x,+y), (-x,-y).
+function rrLoop4(sx, sy, radii, n) {
+  var pts = [], i, k;
+  var sign = [[1,-1],[1,1],[-1,1],[-1,-1]];
+  var a0 = [-Math.PI/2, 0, Math.PI/2, Math.PI];
+  for (i = 0; i < 4; i++) {
+    var r = Math.max(0, Math.min(radii[i], sx/2, sy/2));
+    var cx = sign[i][0] * (sx/2 - r), cy = sign[i][1] * (sy/2 - r);
+    for (k = 0; k <= n; k++) {
+      var a = a0[i] + (Math.PI/2) * k / n;
+      pts.push([cx + r*Math.cos(a), cy + r*Math.sin(a)]);
+    }
+  }
+  return pts;
+}
+
+// Flat ring between two corresponding loops; degenerate quads are dropped, so
+// the loops may touch (as they do along cell edges).
+function addAnnulus(mesh, outer, inner, z, up) {
+  var n = outer.length, nv = up ? [0,0,1] : [0,0,-1];
+  for (var i = 0; i < n; i++) {
+    var j = (i + 1) % n;
+    var A = [outer[i][0], outer[i][1], z], B = [outer[j][0], outer[j][1], z];
+    var C = [inner[j][0], inner[j][1], z], D = [inner[i][0], inner[i][1], z];
+    if (up) { mesh.tri(A, B, C, nv, nv, nv); mesh.tri(A, C, D, nv, nv, nv); }
+    else    { mesh.tri(A, C, B, nv, nv, nv); mesh.tri(A, D, C, nv, nv, nv); }
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Segmentation planning -- ported from GridFlock (MIT, Jonas Konrad).
+   X uses the "ideal" plan (roughly equal segments); Y uses the staggered
+   plan, which returns two alternating row layouts so that segment corners
+   never form a 4-way intersection.
+   --------------------------------------------------------------------- */
+function cumulate(trace) {
+  var c = [0];
+  for (var i = 0; i < trace.length; i++) c.push(c[i] + trace[i]);
+  return c;
+}
+
+function segmentsPerAxis(trace, bedNorm, startPad, endPad) {
+  startPad = startPad || 0; endPad = endPad || 0;
+  var n = trace.length, segI = 0, segSize = startPad, states = [], i;
+  for (i = 0; i < n; i++) {
+    states.push([segI, segSize]);
+    if (segSize + trace[i] > bedNorm) { segI += 1; segSize = 0; }
+    segSize += trace[i];
+  }
+  var last = states[n - 1];
+  var splitLast = last[1] + trace[n - 1] + endPad > bedNorm;
+  return last[0] + (splitLast ? 2 : 1);
+}
+
+function planAxisIdeal(trace, bedNorm, startPad, endPad) {
+  startPad = startPad || 0; endPad = endPad || 0;
+  var n = trace.length, cum = cumulate(trace);
+  var count = segmentsPerAxis(trace, bedNorm, startPad, endPad);
+  var avg = (cum[n] + startPad + endPad) / count;
+  var counts = [], i;
+  for (i = 0; i < count; i++) counts.push(0);
+  for (i = 0; i < n; i++) {
+    var ix = (cum[i] + trace[i] / 2 + startPad) / avg;
+    var a = (ix % 1 === 0) ? ix - 1 : Math.floor(ix);
+    a = Math.max(0, Math.min(count - 1, a));
+    counts[a] += 1;
+  }
+  return counts;
+}
+
+function planAxisIncrementalVars(trace, bedNorm, startPad, endPad, forceFirst) {
+  startPad = startPad || 0; endPad = endPad || 0;
+  var n = trace.length, cum = cumulate(trace);
+  if (cum[n] + startPad + endPad <= bedNorm) return [n, -1, -1];
+  var mid = Math.floor(bedNorm);
+  function computeEnd(first) { var e = (n - first) % mid; return e === 0 ? mid : e; }
+  var firstP = (forceFirst === undefined || forceFirst === null)
+    ? Math.floor(bedNorm - startPad) : forceFirst;
+  var endP = computeEnd(firstP);
+  var shift = (endP === 1 && trace[n - 1] < 1) ||
+              (cum[n] - cum[n - endP] + endPad) > bedNorm;
+  var first = shift ? firstP - 1 : firstP;
+  return [first, mid, computeEnd(first)];
+}
+
+function varsToIncremental(trace, vars) {
+  var n = trace.length, first = vars[0], mid = vars[1], end = vars[2];
+  if (mid === -1) return [first];
+  var out = [], i = 0, pos = 0, guard = 0;
+  while (pos < n && guard++ < 1000) {
+    out.push(i === 0 ? first : (pos + mid >= n ? end : mid));
+    i += 1;
+    pos = first + mid * (i - 1);
+  }
+  return out;
+}
+
+function scorePlanB(a, b) {
+  return (b[0] === 1 ? 20 : 0) + (b[2] === 1 ? 20 : 0)
+       - Math.abs(a[0] - b[0]) - Math.abs(a[2] - b[2]);
+}
+
+function planAxisStaggered(trace, bedNorm, startPad, endPad) {
+  startPad = startPad || 0; endPad = endPad || 0;
+  var n = trace.length;
+  function vars(forceFirst) {
+    return planAxisIncrementalVars(trace, bedNorm, startPad, endPad, forceFirst);
+  }
+  function planSize(v) { return v[1] === -1 ? 1 : (n - v[0] - v[2]) / v[1] + 2; }
+
+  var a1 = vars(undefined);
+  var a2 = (a1[1] === -1 || a1[2] >= 2 || a1[0] <= 2) ? a1 : vars(a1[0] - 1);
+  if (a1[1] <= 1) {
+    var one = varsToIncremental(trace, a1);
+    return [one, one];
+  }
+  var scores = [], shift = 1, plan = vars(a2[0] - 1), best = planSize(plan);
+  while (shift < a2[0] && planSize(plan) <= best) {
+    scores.push(scorePlanB(a2, plan));
+    shift += 1;
+    plan = vars(a2[0] - shift);
+  }
+  var bestI = 0;
+  for (var i = 1; i < scores.length; i++) if (scores[i] < scores[bestI]) bestI = i;
+  return [varsToIncremental(trace, a2),
+          varsToIncremental(trace, vars(a2[0] - (bestI + 1)))];
+}
+
+// Full segmentation plan for a gx x gy plate on a given bed.
+function planPlate(p) {
+  var tx = [], ty = [], i;
+  for (i = 0; i < p.gx; i++) tx.push(1);
+  for (i = 0; i < p.gy; i++) ty.push(1);
+  // connectors stick out past the plate, so GridFlock keeps a margin clear
+  var margin = p.plateConnectors ? 3.5 : 0;
+  var bx = Math.max(1.01, ((p.bedX || 1e6) - margin) / GRID);
+  var by = Math.max(1.01, ((p.bedY || 1e6) - margin) / GRID);
+  var cols = planAxisIdeal(tx, bx);
+  var rows = planAxisStaggered(ty, by);
+  return { cols: cols, rows: rows, tx: tx, ty: ty };
+}
+
+function derivePlate(p) {
+  var base = Math.max(0, p.plateBase || 0);
+  return {
+    OX: p.gx * GRID, OY: p.gy * GRID,
+    base: base,
+    H: base + PLATE_PROFILE_H,
+    cornerR: p.plateR === undefined ? PLATE_CORNER_R : p.plateR,
+    valid: p.gx >= 1 && p.gy >= 1
+  };
+}
+
+// Outline of one segment, walked counter-clockwise from the SW corner, with
+// puzzle connectors spliced into every edge that abuts a neighbouring segment.
+function segmentOutline(p, d, i0, i1, j0, j1, conn, nc, dx, dy) {
+  var R = d.cornerR;
+  var x0 = (i0 - p.gx / 2) * GRID + dx, x1 = (i1 - p.gx / 2) * GRID + dx;
+  var y0 = (j0 - p.gy / 2) * GRID + dy, y1 = (j1 - p.gy / 2) * GRID + dy;
+  var rSW = (i0 === 0 && j0 === 0) ? R : 0;
+  var rSE = (i1 === p.gx && j0 === 0) ? R : 0;
+  var rNE = (i1 === p.gx && j1 === p.gy) ? R : 0;
+  var rNW = (i0 === 0 && j1 === p.gy) ? R : 0;
+  var pts = [];
+
+  // eaten: a half connector at this corner has already taken the corner point
+  function arc(cx, cy, r, a0, a1, fallback, eaten) {
+    if (r <= 0) { if (!eaten) pts.push(fallback); return; }
+    for (var k = 0; k <= nc; k++) {
+      var a = a0 + (a1 - a0) * k / nc;
+      pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  }
+
+  // Splice connectors along one edge. base/n/t give the edge frame: n points
+  // out of the plate, t runs along the walk direction.  Interior cell
+  // boundaries get a whole connector; the two ends of the edge get the half
+  // that falls inside the segment, which is what GridFlock's corner pieces
+  // come to once they are clipped to the segment bounds.
+  function edge(on, male, base, n, t, coords, origin, sign, len, capStart, capEnd) {
+    if (!on) return;
+    var prof = male ? CONNECTOR.male : CONNECTOR.female;
+    var half = 3.4;
+    var list = [];
+    if (capStart) list.push({ at: 0, pts: capProfile(male, 1) });
+    for (var c = 0; c < coords.length; c++) {
+      var sPos = sign * (coords[c] - origin);
+      if (sPos > half && sPos < len - half) list.push({ at: sPos, pts: prof });
+    }
+    if (capEnd) list.push({ at: len, pts: capProfile(male, -1) });
+    list.sort(function (u, v) { return u.at - v.at; });
+    for (var q = 0; q < list.length; q++) {
+      var pr = list[q].pts;
+      for (var k = 0; k < pr.length; k++) {
+        var lx = pr[k][0], ly = pr[k][1] + list[q].at;
+        pts.push([base[0] + n[0] * lx + t[0] * ly,
+                  base[1] + n[1] * lx + t[1] * ly]);
+      }
+    }
+  }
+
+  var xb = [], yb = [], i;
+  for (i = i0 + 1; i < i1; i++) xb.push((i - p.gx / 2) * GRID + dx);
+  for (i = j0 + 1; i < j1; i++) yb.push((i - p.gy / 2) * GRID + dy);
+
+  // a corner next to a connectored edge carries half a connector, which
+  // replaces the corner point itself
+  arc(x0 + rSW, y0 + rSW, rSW, Math.PI, 1.5 * Math.PI, [x0, y0], conn.S || conn.W);
+  edge(conn.S, false, [x0, y0], [0, -1], [1, 0], xb, x0, 1, x1 - x0, !conn.W, !conn.E);
+  arc(x1 - rSE, y0 + rSE, rSE, 1.5 * Math.PI, 2 * Math.PI, [x1, y0], conn.S || conn.E);
+  edge(conn.E, true, [x1, y0], [1, 0], [0, 1], yb, y0, 1, y1 - y0, true, true);
+  arc(x1 - rNE, y1 - rNE, rNE, 0, 0.5 * Math.PI, [x1, y1], conn.N || conn.E);
+  edge(conn.N, true, [x1, y1], [0, 1], [-1, 0], xb, x1, -1, x1 - x0, !conn.E, !conn.W);
+  arc(x0 + rNW, y1 - rNW, rNW, 0.5 * Math.PI, Math.PI, [x0, y1], conn.N || conn.W);
+  edge(conn.W, false, [x0, y1], [-1, 0], [0, -1], yb, y1, -1, y1 - y0, true, true);
+  return dedupeLoop(pts, 1e-4);
+}
+
+/* =====================================================================
+   2D polygon boolean, used to keep puzzle connectors out of the sockets
+
+   Both operands are simple counter-clockwise loops.  The boundary of the
+   result is made of the pieces of one loop that lie inside (or outside)
+   the other, so: cut both loops at every crossing, keep the pieces the
+   operation asks for, then stitch them back together at the crossings.
+
+   Crossings must be transversal.  SOCKET_EPS keeps the operands a hair
+   apart, which is what makes that true; anything degenerate returns null
+   rather than a guess, and the caller leaves the outline alone.
+   ===================================================================== */
+
+var CLIP_EPS = 1e-9;
+var SNAP = null;          // registry so a point computed twice comes back identical
+
+function snapReset() { SNAP = {}; }
+
+function snapPt(p) {
+  if (!SNAP) return p;
+  var kx = Math.round(p[0] * 1e6), ky = Math.round(p[1] * 1e6);
+  for (var i = -1; i <= 1; i++) for (var j = -1; j <= 1; j++) {
+    var e = SNAP[(kx + i) + "," + (ky + j)];
+    if (e && Math.abs(e[0] - p[0]) < 1e-7 && Math.abs(e[1] - p[1]) < 1e-7) return e;
+  }
+  SNAP[kx + "," + ky] = p;
+  return p;
+}
+
+function pointInLoop(pt, loop) {
+  var x = pt[0], y = pt[1], inside = false;
+  for (var i = 0, n = loop.length, j = n - 1; i < n; j = i++) {
+    var xi = loop[i][0], yi = loop[i][1], xj = loop[j][0], yj = loop[j][1];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/* Every transversal crossing of two loops, tagged with the parametric
+   position along each so both can be split consistently. */
+function loopCrossings(A, B) {
+  var out = [], na = A.length, nb = B.length;
+  for (var i = 0; i < na; i++) {
+    var a0 = A[i], a1 = A[(i + 1) % na];
+    var rx = a1[0] - a0[0], ry = a1[1] - a0[1];
+    for (var j = 0; j < nb; j++) {
+      var b0 = B[j], b1 = B[(j + 1) % nb];
+      var sx = b1[0] - b0[0], sy = b1[1] - b0[1];
+      var den = rx * sy - ry * sx;
+      if (Math.abs(den) < 1e-14) continue;
+      var qx = b0[0] - a0[0], qy = b0[1] - a0[1];
+      var t = (qx * sy - qy * sx) / den;
+      var u = (qx * ry - qy * rx) / den;
+      if (t <= CLIP_EPS || t >= 1 - CLIP_EPS) continue;
+      if (u <= CLIP_EPS || u >= 1 - CLIP_EPS) continue;
+      out.push({ id: out.length, p: snapPt([a0[0] + t * rx, a0[1] + t * ry]),
+                 ei: i, t: t, ej: j, u: u });
+    }
+  }
+  return out;
+}
+
+/* Split a loop at its crossings; each chain runs from one crossing to the next. */
+function loopChains(loop, marks, keyEdge, keyParam) {
+  var n = loop.length, per = [], i;
+  for (i = 0; i < n; i++) per.push([]);
+  for (i = 0; i < marks.length; i++) per[marks[i][keyEdge]].push(marks[i]);
+  for (i = 0; i < n; i++)
+    per[i].sort(function (a, b) { return a[keyParam] - b[keyParam]; });
+
+  var aug = [];
+  for (i = 0; i < n; i++) {
+    aug.push({ p: loop[i], id: -1 });
+    for (var m = 0; m < per[i].length; m++) aug.push({ p: per[i][m].p, id: per[i][m].id });
+  }
+  var first = -1;
+  for (i = 0; i < aug.length; i++) if (aug[i].id >= 0) { first = i; break; }
+  if (first < 0) return null;
+
+  var chains = [], cur = null, N = aug.length;
+  for (var s = 0; s <= N; s++) {
+    var v = aug[(first + s) % N];
+    if (cur) cur.pts.push(v.p);
+    if (v.id >= 0) {
+      if (cur) { cur.endId = v.id; chains.push(cur); }
+      if (s < N) cur = { pts: [v.p], startId: v.id, endId: -1 };
+    }
+  }
+  return chains;
+}
+
+function chainInside(chain, other) {
+  var a = chain.pts[0], b = chain.pts[1];
+  return pointInLoop([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], other);
+}
+
+/* op: "int", "union" or "diff" (A without B).  Null when the loops do not
+   cross -- the caller decides containment -- or when a crossing is degenerate. */
+function polyBool(A, B, op) {
+  var marks = loopCrossings(A, B);
+  if (!marks.length) return null;
+  var ca = loopChains(A, marks, "ei", "t");
+  var cb = loopChains(B, marks, "ej", "u");
+  if (!ca || !cb) return null;
+
+  var wantA = op === "int", wantB = op === "int" || op === "diff";
+  var keep = [], k;
+  for (k = 0; k < ca.length; k++)
+    if (chainInside(ca[k], B) === wantA) keep.push(ca[k]);
+  for (k = 0; k < cb.length; k++) {
+    if (chainInside(cb[k], A) !== wantB) continue;
+    keep.push(op === "diff"
+      ? { pts: cb[k].pts.slice().reverse(), startId: cb[k].endId, endId: cb[k].startId }
+      : cb[k]);
+  }
+
+  var byStart = {};
+  for (k = 0; k < keep.length; k++) {
+    if (byStart[keep[k].startId] !== undefined) return null;      // degenerate
+    byStart[keep[k].startId] = k;
+  }
+  var used = [], out = [];
+  for (k = 0; k < keep.length; k++) used.push(false);
+  for (k = 0; k < keep.length; k++) {
+    if (used[k]) continue;
+    var loop = [], idx = k, guard = 0;
+    while (!used[idx]) {
+      used[idx] = true;
+      var c = keep[idx];
+      for (var q = 0; q + 1 < c.pts.length; q++) loop.push(c.pts[q]);
+      if (byStart[c.endId] === undefined) return null;            // dangling
+      idx = byStart[c.endId];
+      if (++guard > keep.length + 1) return null;
+    }
+    if (loop.length >= 3) out.push(loop);
+  }
+  return out;
+}
+
+/* A puzzle connector is placed at a cell corner, where the socket opening is
+   already rounded away, and the female notch bites about 0.017 mm past that
+   rounding into the socket.  GridFlock trims its male tab against the same
+   circle; do the equivalent here by filling the notch back to the socket rim,
+   which keeps the socket a clean hole in the top face instead of something
+   that straddles the outline. */
+function clearSockets(outline, p, i0, i1, j0, j1, dx, dy, nc) {
+  snapReset();
+  for (var i = i0; i < i1; i++) for (var j = j0; j < j1; j++) {
+    var ox = (i + 0.5 - p.gx / 2) * GRID + dx;
+    var oy = (j + 0.5 - p.gy / 2) * GRID + dy;
+    // between the socket rim and the nominal cell: clear of the rim, and
+    // clear of the male tab root, which sits exactly on the cell boundary
+    var guard = offsetLoop(rrLoop(SOCKET[0][1] - SOCKET_EPS, SOCKET[0][1] - SOCKET_EPS,
+                                  SOCKET[0][2] - SOCKET_EPS / 2, nc), ox, oy);
+    if (!loopCrossings(outline, guard).length) continue;
+    var r = polyBool(outline, guard, "union");
+    if (r && r.length === 1) outline = dedupeLoop(r[0], 1e-4);
+  }
+  return outline;
+}
+
+// One printable piece: the cell rectangle [i0,i1) x [j0,j1) of the plate.
+function addPlateSegment(m, p, d, seg, i0, i1, j0, j1, dx, dy, conn) {
+  var nc = seg.corner, i, j, k;
+  var outline = clearSockets(segmentOutline(p, d, i0, i1, j0, j1, conn, nc, dx, dy),
+                             p, i0, i1, j0, j1, dx, dy, nc);
+  addBand(m, outline, 0, outline, d.H, false);
+
+  var tops = [], floors = [];
+  for (i = i0; i < i1; i++) for (j = j0; j < j1; j++) {
+    var ox = (i + 0.5 - p.gx / 2) * GRID + dx;
+    var oy = (j + 0.5 - p.gy / 2) * GRID + dy;
+    var lv = [];
+    for (k = 0; k < SOCKET.length; k++) {
+      var shrink = (k === 0) ? 2 * SOCKET_EPS : 0;   // keep the rim off the edge
+      lv.push({
+        loop: offsetLoop(rrLoop(SOCKET[k][1] - shrink, SOCKET[k][1] - shrink,
+                                Math.max(0, SOCKET[k][2] - shrink / 2), nc), ox, oy),
+        z: d.H - SOCKET[k][0]
+      });
+    }
+    // levels run top-down, so the un-flipped winding already faces the void
+    for (k = 0; k + 1 < lv.length; k++)
+      addBand(m, lv[k].loop, lv[k].z, lv[k + 1].loop, lv[k + 1].z, false);
+    tops.push(lv[0].loop);
+    floors.push(lv[lv.length - 1]);
+  }
+
+  addCap(m, outline, tops, d.H, true);
+  if (d.base > 1e-6) {
+    // the socket floor sits on solid base, so it faces up into the socket
+    for (k = 0; k < floors.length; k++)
+      addCap(m, floors[k].loop, [], floors[k].z, true);
+    addCap(m, outline, [], 0, false);
+  } else {
+    addCap(m, outline, floors.map(function (f) { return f.loop; }), 0, false);
+  }
+}
+
+function* plateSteps(p, seg) {
+  var d = derivePlate(p);
+  var m = new Mesh();
+  if (!d.valid) return { mesh: m, derived: d, plan: null };
+
+  var plan = planPlate(p);
+  var colEdge = cumulate(plan.cols);
+  var gap = Math.max(0, p.plateGap || 0);
+  var pieces = 0, sx, sy;
+
+  var slices = 0;
+  for (sx = 0; sx < plan.cols.length; sx++)
+    for (sy = 0; sy < plan.rows[sx % 2].length; sy++)
+      if (plan.rows[sx % 2][sy] !== 0 && plan.cols[sx] !== 0) slices++;
+
+  for (sx = 0; sx < plan.cols.length; sx++) {
+    var rowsPlan = plan.rows[sx % 2];
+    var rowEdge = cumulate(rowsPlan);
+    for (sy = 0; sy < rowsPlan.length; sy++) {
+      if (rowsPlan[sy] === 0 || plan.cols[sx] === 0) continue;
+      var dx = (sx - (plan.cols.length - 1) / 2) * gap;
+      var dy = (sy - (rowsPlan.length - 1) / 2) * gap;
+      var conn = {
+        W: sx > 0, E: sx < plan.cols.length - 1,
+        S: sy > 0, N: sy < rowsPlan.length - 1
+      };
+      if (!p.plateConnectors) conn = { W: false, E: false, S: false, N: false };
+      addPlateSegment(m, p, d, seg,
+                      colEdge[sx], colEdge[sx + 1],
+                      rowEdge[sy], rowEdge[sy + 1], dx, dy, conn);
+      pieces += 1;
+      yield pieces / slices;
+    }
+  }
+  d.pieces = pieces;
+  d.plan = plan;
+  return { mesh: m, derived: d, plan: plan };
+}
+
+/* =====================================================================
+   The bin
+   ===================================================================== */
+/* The two builders are generators: they yield a 0..1 fraction at points where
+   it is safe to hand control back, so a long export can repaint and show
+   progress.  buildBin/buildPlate below drive them straight through, so every
+   other caller sees the same plain function it always did. */
+function* binSteps(P, seg) {
+  var d = derive(P);
+  var m = new Mesh();
+  if (!d.valid) return { mesh: m, derived: d };
+  var slices = P.gx * P.gy + 3 + P.dx * P.dy, sliced = 0;
+
+  var nc = seg.corner, nh = seg.hole, ni = seg.comp || seg.corner;
+  var cellX = [], cellY = [], i, j;
+  for (i = 0; i < P.gx; i++) cellX.push((i - (P.gx - 1) / 2) * GRID);
+  for (j = 0; j < P.gy; j++) cellY.push((j - (P.gy - 1) / 2) * GRID);
+
+  var holeR0 = P.mag ? MAGNET_R : SCREW_R;
+  var anyHole = P.mag || P.screw;
+  var footHole = anyHole;                       // holes start in the feet
+  var slabHole = P.screw;                       // screws continue into the slab
+
+  /* ---- 1. feet ---- */
+  var footLevels = [
+    { loop: rrLoop(FOOT_BOT, FOOT_BOT, R_BOT, nc), z: 0 },
+    { loop: rrLoop(FOOT_MID, FOOT_MID, R_MID, nc), z: CH_LOWER },
+    { loop: rrLoop(FOOT_MID, FOOT_MID, R_MID, nc), z: CH_LOWER + H_MID },
+    { loop: rrLoop(FOOT_TOP, FOOT_TOP, R_TOP, nc), z: BASE_H }
+  ];
+  var offs = [[-HOLE_OFF, -HOLE_OFF], [HOLE_OFF, -HOLE_OFF],
+              [HOLE_OFF, HOLE_OFF], [-HOLE_OFF, HOLE_OFF]];
+
+  for (i = 0; i < P.gx; i++) for (j = 0; j < P.gy; j++) {
+    var ox = cellX[i], oy = cellY[j];
+    var lv = footLevels.map(function (L) {
+      return { loop: offsetLoop(L.loop, ox, oy), z: L.z };
+    });
+    var bottomHoles = [], topHoles = [];
+    if (footHole) {
+      for (var h = 0; h < 4; h++) {
+        var hx = ox + offs[h][0], hy = oy + offs[h][1];
+        bottomHoles.push(circleLoop(hx, hy, holeR0, nh));
+        if (slabHole) topHoles.push(circleLoop(hx, hy, SCREW_R, nh));
+
+        // walls of the recess inside the foot
+        var magC = circleLoop(hx, hy, MAGNET_R, nh);
+        var scrC = circleLoop(hx, hy, SCREW_R, nh);
+        if (P.mag && P.screw) {                      // stepped: magnet then screw
+          addHoleWalls(m, [{ loop: magC, z: 0 }, { loop: magC, z: MAGNET_H }]);
+          addCap(m, magC, [scrC], MAGNET_H, false);  // shoulder, faces into the pocket
+          addHoleWalls(m, [{ loop: scrC, z: MAGNET_H }, { loop: scrC, z: BASE_H }]);
+        } else if (P.mag) {                          // blind magnet pocket
+          addHoleWalls(m, [{ loop: magC, z: 0 }, { loop: magC, z: MAGNET_H }]);
+          addCap(m, magC, [], MAGNET_H, false);
+        } else {                                     // screw only, straight through
+          addHoleWalls(m, [{ loop: scrC, z: 0 }, { loop: scrC, z: BASE_H }]);
+        }
+      }
+    }
+    addSolid(m, lv, bottomHoles, topHoles);
+    yield ++sliced / slices;
+  }
+
+  /* ---- 2. floor slab ---- */
+  var OUT = rrLoop(d.OX, d.OY, R_TOP, nc);
+  var slabBottomHoles = [];
+  if (slabHole) {
+    for (i = 0; i < P.gx; i++) for (j = 0; j < P.gy; j++) for (var h2 = 0; h2 < 4; h2++) {
+      var sx = cellX[i] + offs[h2][0], sy = cellY[j] + offs[h2][1];
+      slabBottomHoles.push(circleLoop(sx, sy, SCREW_R, nh));
+      addHoleWalls(m, [
+        { loop: circleLoop(sx, sy, SCREW_R, nh), z: BASE_H },
+        { loop: circleLoop(sx, sy, SCREW_R, nh), z: SCREW_H }
+      ]);
+      addCap(m, circleLoop(sx, sy, SCREW_R, nh), [], SCREW_H, false);
+    }
+  }
+  addSolid(m, [{ loop: OUT, z: BASE_H }, { loop: OUT, z: d.FLOOR }],
+           slabBottomHoles, []);
+  yield ++sliced / slices;
+
+  /* ---- 3. walls + dividers ---- */
+  var comp = [], compSmall = [];
+  var f = d.fillet;
+  for (i = 0; i < P.dx; i++) for (j = 0; j < P.dy; j++) {
+    var cx = (i - (P.dx - 1) / 2) * d.pitchX;
+    var cy = (j - (P.dy - 1) / 2) * d.pitchY;
+    comp.push(offsetLoop(rrLoop(d.CW, d.CD, d.R_IN, ni), cx, cy));
+    compSmall.push(offsetLoop(
+      rrLoop(d.CW - 2 * f, d.CD - 2 * f, Math.max(0, d.R_IN - f), ni), cx, cy));
+  }
+
+  // outer skin of the wall block
+  addBand(m, OUT, d.FLOOR, OUT, d.H_BODY, false);
+  // inner skin of every compartment: fillet band, then straight
+  for (var c = 0; c < comp.length; c++) {
+    if (f > 1e-6) addBand(m, compSmall[c], d.FLOOR, comp[c], d.FLOOR + f, true);
+    addBand(m, comp[c], d.FLOOR + f, comp[c], d.H_BODY, true);
+  }
+  addCap(m, OUT, f > 1e-6 ? compSmall : comp, d.FLOOR, false);
+  addCap(m, OUT, comp, d.H_BODY, true);
+  yield ++sliced / slices;
+
+  /* ---- 4. stacking lip ---- */
+  if (P.lip) {
+    var zb = d.H_BODY;
+    var inWall = rrLoop(d.OX - 2 * P.wall, d.OY - 2 * P.wall,
+                        Math.max(0, R_TOP - P.wall), nc);
+    var narrow = rrLoop(d.OX - 2 * LIP_INSET, d.OY - 2 * LIP_INSET,
+                        Math.max(0, R_TOP - LIP_INSET), nc);
+    var opening = rrLoop(d.OX - 2 * (LIP_INSET - LIP_TAPER),
+                         d.OY - 2 * (LIP_INSET - LIP_TAPER),
+                         Math.max(0, R_TOP - LIP_INSET + LIP_TAPER), nc);
+    var z1 = zb + CH_LOWER - d.support, z2 = zb + CH_LOWER;
+    var z3 = z2 + H_MID, z4 = zb + LIP_H;
+
+    addBand(m, OUT, zb, OUT, z4, false);              // outside of the lip
+    addBand(m, inWall, zb, inWall, z1, true);         // straight run
+    addBand(m, inWall, z1, narrow, z2, true);         // 45 deg support
+    addBand(m, narrow, z2, narrow, z3, true);         // mating face
+    addBand(m, narrow, z3, opening, z4, true);        // top chamfer
+    addCap(m, OUT, [inWall], zb, false);
+    addCap(m, OUT, [opening], z4, true);
+  }
+
+  yield ++sliced / slices;
+
+  /* ---- 5. scoops and label tabs ---- */
+  for (i = 0; i < P.dx; i++) for (j = 0; j < P.dy; j++) {
+    var ccx = (i - (P.dx - 1) / 2) * d.pitchX;
+    var ccy = (j - (P.dy - 1) / 2) * d.pitchY;
+    var x0 = ccx - d.CW / 2, x1 = ccx + d.CW / 2;
+
+    if (d.scoopR > 1e-6) {
+      var rs = d.scoopR, y0 = ccy - d.CD / 2, sec = [[y0, d.FLOOR]];
+      sec.push([y0 + rs, d.FLOOR]);
+      for (var k = 0; k <= ni; k++) {                 // quarter arc, clockwise
+        var a2 = -Math.PI / 2 - (Math.PI / 2) * k / ni;
+        sec.push([y0 + rs + rs * Math.cos(a2), d.FLOOR + rs + rs * Math.sin(a2)]);
+      }
+      addPrismX(m, sec, x0, x1);
+    }
+
+    if (d.labelD > 1e-6) {
+      var ld = d.labelD, yb = ccy + d.CD / 2, tb = d.H_BODY;
+      addPrismX(m, [[yb, tb], [yb - ld, tb], [yb, tb - ld]], x0, x1);
+    }
+    yield ++sliced / slices;
+  }
+
+  return { mesh: m, derived: d };
+}
+
+/* Run a builder straight through, for every caller that just wants the mesh. */
+function runSteps(gen) {
+  var r;
+  do { r = gen.next(); } while (!r.done);
+  return r.value;
+}
+function buildBin(P, seg) { return runSteps(binSteps(P, seg)); }
+function buildPlate(p, seg) { return runSteps(plateSteps(p, seg)); }
+
+/* =====================================================================
+   Binary STL
+   ===================================================================== */
+function toSTL(mesh) {
+  var n = mesh.count();
+  var buf = new ArrayBuffer(84 + n * 50);
+  var dv = new DataView(buf);
+  var head = "Gridfinity bin - generated by gridfinity_bin.html";
+  for (var i = 0; i < 80; i++) dv.setUint8(i, i < head.length ? head.charCodeAt(i) : 32);
+  dv.setUint32(80, n, true);
+  var o = 84, p = mesh.pos;
+  for (var t = 0; t < n; t++) {
+    var b = t * 9;
+    var ux = p[b + 3] - p[b], uy = p[b + 4] - p[b + 1], uz = p[b + 5] - p[b + 2];
+    var vx = p[b + 6] - p[b], vy = p[b + 7] - p[b + 1], vz = p[b + 8] - p[b + 2];
+    var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    var l = Math.hypot(nx, ny, nz) || 1;
+    dv.setFloat32(o, nx / l, true); dv.setFloat32(o + 4, ny / l, true);
+    dv.setFloat32(o + 8, nz / l, true); o += 12;
+    for (var v = 0; v < 9; v++) { dv.setFloat32(o, p[b + v], true); o += 4; }
+    dv.setUint16(o, 0, true); o += 2;
+  }
+  return buf;
+}
+
+if (typeof module !== "undefined") module.exports = { buildBin: buildBin, derive: derive, toSTL: toSTL, DEFAULTS: DEFAULTS };
+
+/* =====================================================================
+   Renderer
+   ===================================================================== */
+var PREVIEW_SEG = { corner: 10, comp: 6, hole: 14 };
+var RENDER_SEG  = { corner: 44, comp: 18, hole: 48 };
+
+var canvas = document.getElementById("gl");
+var errBox = document.getElementById("err");
+var badge  = document.getElementById("badge");
+var savedBox = document.getElementById("saved");
+
+/* When this page runs inside OrcaSlicer the host injects window.orca. In that
+   case the STL goes to the plugin over postMessage instead of a download, and
+   the panel adopts the host theme. Standalone in a browser, neither applies. */
+var ORCA = (window.orca && typeof window.orca.postMessage === "function") ? window.orca : null;
+if (ORCA) {
+  document.documentElement.classList.add("orca-host");
+  document.getElementById("toPlateRow").hidden = false;
+  document.getElementById("bedRow").hidden = false;
+}
+
+function cssColor(name, fallback) {
+  var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  var m = /^#?([0-9a-f]{6})$/i.exec(v);
+  if (!m) return fallback;
+  var n = parseInt(m[1], 16);
+  return [Math.pow(((n >> 16) & 255) / 255, 2.2),
+          Math.pow(((n >> 8) & 255) / 255, 2.2),
+          Math.pow((n & 255) / 255, 2.2)];
+}
+var gl = canvas.getContext("webgl", { antialias: true, alpha: false, depth: true })
+      || canvas.getContext("experimental-webgl", { antialias: true, alpha: false, depth: true });
+
+var VERT = [
+  "attribute vec3 aPos;",
+  "attribute vec3 aNrm;",
+  "uniform mat4 uMVP;",
+  "varying vec3 vN; varying vec3 vP;",
+  "void main(){ vN = aNrm; vP = aPos; gl_Position = uMVP * vec4(aPos, 1.0); }"
+].join("\n");
+
+var FRAG = [
+  "precision highp float;",
+  "varying vec3 vN; varying vec3 vP;",
+  "uniform vec3 uCol, uEye, uGroundCol, uBgCol;",
+  "uniform vec2 uHalf;",
+  "uniform float uR, uIsGround;",
+  "float rr(vec2 p, vec2 b, float r){",
+  "  vec2 q = abs(p) - b + r;",
+  "  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;",
+  "}",
+  "void main(){",
+  "  vec3 L1 = normalize(vec3(0.45, -0.78, 0.85));",
+  "  vec3 L2 = normalize(vec3(-0.72, 0.40, 0.35));",
+  "  if (uIsGround > 0.5) {",
+  "    float d = rr(vP.xy, uHalf, uR);",
+  "    float sh = smoothstep(0.0, 30.0, d);",           // contact shadow
+  "    float far = smoothstep(60.0, 460.0, d);",         // fade to background
+  "    vec3 g = uGroundCol * mix(0.34, 1.0, sh);",
+  "    gl_FragColor = vec4(pow(mix(g, uBgCol, far), vec3(0.4545)), 1.0);",
+  "    return;",
+  "  }",
+  "  vec3 N = normalize(vN);",
+  "  vec3 V = normalize(uEye - vP);",
+  "  if (!gl_FrontFacing) N = -N;",
+  "  float k1 = max(dot(N, L1), 0.0);",
+  "  float k2 = max(dot(N, L2), 0.0);",
+  "  float amb = 0.5 + 0.5 * N.z;",
+  "  vec3 c = uCol * (0.13 + 0.70 * k1 + 0.24 * k2 + 0.34 * amb);",
+  "  vec3 H = normalize(L1 + V);",
+  "  c += vec3(0.20) * pow(max(dot(N, H), 0.0), 30.0);",
+  "  float fre = pow(1.0 - max(dot(N, V), 0.0), 4.0);",
+  "  c += uCol * 0.55 * fre;",
+  "  gl_FragColor = vec4(pow(clamp(c, 0.0, 1.0), vec3(0.4545)), 1.0);",
+  "}"
+].join("\n");
+
+/* ---- matrix helpers ---- */
+function mMul(a, b) {
+  var o = new Float32Array(16);
+  for (var i = 0; i < 4; i++) for (var j = 0; j < 4; j++) {
+    var s = 0;
+    for (var k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k];
+    o[i * 4 + j] = s;
+  }
+  return o;
+}
+function mPersp(fovy, aspect, near, far) {
+  var f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  return new Float32Array([f / aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
+}
+function mLookAt(eye, ctr, up) {
+  var z = nrm3([eye[0]-ctr[0], eye[1]-ctr[1], eye[2]-ctr[2]]);
+  var x = nrm3(crs3(up, z));
+  var y = crs3(z, x);
+  return new Float32Array([
+    x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0,
+    -(x[0]*eye[0]+x[1]*eye[1]+x[2]*eye[2]),
+    -(y[0]*eye[0]+y[1]*eye[1]+y[2]*eye[2]),
+    -(z[0]*eye[0]+z[1]*eye[1]+z[2]*eye[2]), 1]);
+}
+function crs3(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function nrm3(a){ var l = Math.hypot(a[0],a[1],a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; }
+
+/* ---- GL state ---- */
+var prog, U = {}, aPos, aNrm;
+var binBuf = { pos: null, nrm: null, n: 0 };
+var groundBuf = { pos: null, nrm: null, n: 0 };
+
+function compile(type, src) {
+  var s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+
+function initGL() {
+  prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  aPos = gl.getAttribLocation(prog, "aPos");
+  aNrm = gl.getAttribLocation(prog, "aNrm");
+  gl.enableVertexAttribArray(aPos);
+  gl.enableVertexAttribArray(aNrm);
+  ["uMVP","uCol","uEye","uGroundCol","uBgCol","uHalf","uR","uIsGround"]
+    .forEach(function (n) { U[n] = gl.getUniformLocation(prog, n); });
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
+  binBuf.pos = gl.createBuffer(); binBuf.nrm = gl.createBuffer();
+  groundBuf.pos = gl.createBuffer(); groundBuf.nrm = gl.createBuffer();
+}
+
+function uploadMesh(mesh) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, binBuf.pos);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh.pos), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, binBuf.nrm);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh.nrm), gl.STATIC_DRAW);
+  binBuf.n = mesh.count() * 3;
+}
+
+function uploadGround(size) {
+  var s = size, v = [-s,-s,-0.02, s,-s,-0.02, s,s,-0.02, -s,-s,-0.02, s,s,-0.02, -s,s,-0.02];
+  var n = []; for (var i = 0; i < 6; i++) n.push(0, 0, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, groundBuf.pos);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, groundBuf.nrm);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(n), gl.STATIC_DRAW);
+  groundBuf.n = 6;
+}
+
+/* ---- camera ---- */
+var cam = { az: -0.62, el: 0.40, dist: 260, target: [0, 0, 12] };
+var dragging = false, quality = "preview", needsDraw = true;
+var renderCache = null;            // last full-detail build, reused by export
+var bedFrom = null;
+
+function frameCamera() {
+  var d = P.mode === "plate" ? derivePlate(P) : derive(P);
+  var top = P.mode === "plate" ? d.H : d.TOP;
+  cam.target = [0, 0, top * 0.42];
+  cam.dist = Math.max(d.OX, d.OY, top) * 2.0 + 55;
+  needsDraw = true;
+}
+function setView(v) {
+  if (v === "iso")   { cam.az = -0.62; cam.el = 0.40; }
+  if (v === "front") { cam.az = -Math.PI/2; cam.el = 0.06; }
+  if (v === "top")   { cam.az = -Math.PI/2; cam.el = 1.40; }
+  if (v === "under") { cam.az = -Math.PI/2; cam.el = -1.20; }
+  frameCamera();
+}
+
+var darkMQ = window.matchMedia("(prefers-color-scheme: dark)");
+function palette() {
+  var p = darkMQ.matches
+    ? { bin:[0.055,0.20,0.135], ground:[0.085,0.095,0.112], bg:[0.055,0.062,0.075] }
+    : { bin:[0.075,0.31,0.20],  ground:[0.74,0.755,0.785],  bg:[0.86,0.875,0.90] };
+  if (ORCA) {
+    p.bg = cssColor("--orca-bg", p.bg);
+    p.ground = [p.bg[0] * 1.35 + 0.02, p.bg[1] * 1.35 + 0.02, p.bg[2] * 1.35 + 0.02];
+  }
+  return p;
+}
+
+function draw() {
+  var ssaa = (quality === "render" && !dragging) ? 2 : 1;
+  var dpr = Math.min(window.devicePixelRatio || 1, 2) * ssaa;
+  var w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+  var h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, w, h);
+
+  var pal = palette();
+  gl.clearColor(Math.pow(pal.bg[0],0.4545), Math.pow(pal.bg[1],0.4545), Math.pow(pal.bg[2],0.4545), 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  var ce = Math.cos(cam.el), se = Math.sin(cam.el);
+  var eye = [cam.target[0] + cam.dist * Math.cos(cam.az) * ce,
+             cam.target[1] + cam.dist * Math.sin(cam.az) * ce,
+             cam.target[2] + cam.dist * se];
+  var proj = mPersp(0.62, w / h, 1, 6000);
+  var view = mLookAt(eye, cam.target, [0, 0, 1]);
+  var mvp = mMul(proj, view);
+  var d = P.mode === "plate" ? derivePlate(P) : derive(P);
+
+  gl.uniformMatrix4fv(U.uMVP, false, mvp);
+  gl.uniform3fv(U.uEye, eye);
+  gl.uniform3fv(U.uGroundCol, pal.ground);
+  gl.uniform3fv(U.uBgCol, pal.bg);
+  gl.uniform2f(U.uHalf, d.OX / 2, d.OY / 2);
+  gl.uniform1f(U.uR, R_TOP);
+
+  // ground
+  gl.uniform1f(U.uIsGround, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, groundBuf.pos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, groundBuf.nrm); gl.vertexAttribPointer(aNrm, 3, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, groundBuf.n);
+
+  // bin
+  if (binBuf.n) {
+    gl.uniform1f(U.uIsGround, 0);
+    gl.uniform3fv(U.uCol, pal.bin);
+    gl.bindBuffer(gl.ARRAY_BUFFER, binBuf.pos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, binBuf.nrm); gl.vertexAttribPointer(aNrm, 3, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, binBuf.n);
+  }
+}
+
+function loop() {
+  if (needsDraw) { needsDraw = false; draw(); }
+  requestAnimationFrame(loop);
+}
+
+/* =====================================================================
+   Parameters, UI
+   ===================================================================== */
+var P = Object.assign({}, DEFAULTS, { mode: "bin", plateBase: 0, plateR: 4,
+                                 bedX: 250, bedY: 220, plateGap: 0, plateConnectors: true });
+var INTS = ["gx","gy","gz","dx","dy"];
+var FLOATS = ["wall","floorT","scoopR","labelD","fillet","plateBase","plateR","bedX","bedY","plateGap"];
+var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors"];
+var lastTris = 0;
+
+function readControls() {
+  INTS.forEach(function (k) { P[k] = +document.getElementById(k).value; });
+  FLOATS.forEach(function (k) {
+    var v = parseFloat(document.getElementById(k).value);
+    if (isFinite(v)) P[k] = v;
+  });
+  BOOLS.forEach(function (k) { P[k] = document.getElementById(k).checked; });
+  P.mode = document.getElementById("mode_plate").checked ? "plate" : "bin";
+  var plate = P.mode === "plate";
+  document.getElementById("plateOpts").hidden = !plate;
+  document.getElementById("binOpts").hidden = plate;
+  document.getElementById("binFeatures").hidden = plate;
+  document.getElementById("row_gz").style.display = plate ? "none" : "";
+}
+
+var fmt = function (n) { return (Math.round(n * 100) / 100).toString(); };
+
+function applyMesh(res, q) {
+  quality = q;
+  uploadMesh(res.mesh);
+  uploadGround(Math.max(res.derived.OX, res.derived.OY) * 6 + 400);
+  lastTris = res.mesh.count();
+  document.getElementById("s_tris").textContent = lastTris.toLocaleString();
+  badge.textContent = q === "render" ? "Rendered" : "Preview";
+  badge.className = q === "render" ? "badge hi" : "badge";
+  needsDraw = true;
+}
+
+function rebuild(q) {
+  var seg = q === "render" ? RENDER_SEG : PREVIEW_SEG;
+  var res = P.mode === "plate" ? buildPlate(P, seg) : buildBin(P, seg);
+  if (q === "render") renderCache = { sig: meshSig(P, seg), res: res };
+  applyMesh(res, q);
+}
+
+function updateReadout() {
+  if (P.mode === "plate") return updatePlateReadout();
+  var d = derive(P);
+  INTS.forEach(function (k) { document.getElementById(k + "_o").textContent = P[k]; });
+  document.getElementById("s_foot").textContent = fmt(d.OX) + " × " + fmt(d.OY) + " mm";
+  document.getElementById("s_tall").textContent =
+    fmt(d.TOP) + " mm" + (P.lip ? " (body " + fmt(d.H_BODY) + ")" : "");
+  document.getElementById("s_comp").textContent = fmt(d.CW) + " × " + fmt(d.CD) + " mm";
+  document.getElementById("s_depth").textContent = fmt(d.depth) + " mm";
+  var warn = document.getElementById("s_warn"), msgs = [];
+  if (!d.valid) msgs.push("These settings leave no usable compartment.");
+  else if (d.depth < 2) msgs.push("Compartments are under 2 mm deep — raise the height.");
+  warn.hidden = msgs.length === 0;
+  warn.textContent = msgs.join(" ");
+  document.getElementById("cmd").textContent = command();
+}
+
+function updatePlateReadout() {
+  var d = derivePlate(P);
+  INTS.forEach(function (k) { document.getElementById(k + "_o").textContent = P[k]; });
+  document.getElementById("s_foot").textContent = fmt(d.OX) + " × " + fmt(d.OY) + " mm";
+  document.getElementById("s_tall").textContent = fmt(d.H) + " mm";
+  document.getElementById("s_comp").textContent = P.gx + " × " + P.gy + " cells";
+  var pl = planPlate(P), np = 0, sx;
+  for (sx = 0; sx < pl.cols.length; sx++) np += pl.rows[sx % 2].length;
+  document.getElementById("s_depth").textContent =
+    np + (np === 1 ? " piece" : " pieces") + "  (" + pl.cols.join("+") + " cols)";
+  document.getElementById("s_warn").hidden = true;
+  document.getElementById("cmd").textContent =
+    "Baseplate geometry is generated here, not by gridfinity_bin.scad.\n" +
+    "Verified against GridFlock: volume within 0.01% of its OpenSCAD output.";
+}
+
+function command() {
+  var args = [];
+  function push(k, v) { args.push("-D " + k + "=" + v); }
+  push("gx", P.gx); push("gy", P.gy); push("gz", P.gz);
+  push("divisions_x", P.dx); push("divisions_y", P.dy);
+  push("stacking_lip", P.lip); push("scoop", P.scoop); push("label_tab", P.label);
+  push("magnet_holes", P.mag); push("screw_holes", P.screw);
+  var adv = { wall:"wall", floorT:"floor_thickness", scoopR:"scoop_radius",
+              labelD:"label_depth", fillet:"inner_fillet" };
+  for (var k in adv) if (P[k] !== DEFAULTS[k]) push(adv[k], P[k]);
+  return "openscad " + args.join(" ") + " -o " + stem() + ".stl gridfinity_bin.scad";
+}
+
+function stem() {
+  if (P.mode === "plate")
+    return "gridfinity_baseplate_" + P.gx + "x" + P.gy;
+  return "gridfinity_" + P.gx + "x" + P.gy + "x" + P.gz +
+         (P.dx * P.dy > 1 ? "_" + P.dx + "x" + P.dy : "");
+}
+
+// Rebuilds are debounced: readouts stay instant while dragging a slider, and
+// only the last value triggers a mesh build (which is slow for big grids).
+var rebuildTimer = null;
+function onChange(refit) {
+  readControls();
+  renderCache = null;              // settings moved on; the cached mesh is stale
+  updateReadout();
+  badge.textContent = "Preview";
+  badge.className = "badge";
+  if (refit) frameCamera();
+  if (rebuildTimer) clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(function () {
+    rebuildTimer = null;
+    rebuild("preview");
+  }, 45);
+}
+
+INTS.concat(FLOATS, BOOLS).forEach(function (k) {
+  var el = document.getElementById(k);
+  var refit = ["gx","gy","gz","lip"].indexOf(k) >= 0;
+  el.addEventListener("input", function () { onChange(refit); });
+  el.addEventListener("change", function () { onChange(refit); });
+});
+
+["mode_bin", "mode_plate"].forEach(function (id) {
+  document.getElementById(id).addEventListener("change", function () { onChange(true); });
+});
+
+document.querySelectorAll(".views button").forEach(function (b) {
+  b.addEventListener("click", function () { setView(b.dataset.view); });
+});
+
+/* ---- render button ---- */
+var btnRender = document.getElementById("btnRender");
+var btnStl = document.getElementById("btnStl");
+
+function note(msg, on) {
+  savedBox.hidden = !on;
+  savedBox.textContent = msg || "";
+}
+
+/* =====================================================================
+   Long jobs
+
+   A full-detail 8x8 bin is a few hundred thousand triangles and takes some
+   seconds to build and encode.  Doing that in one synchronous block froze the
+   page with no sign of life, which reads as a button that did nothing.  The
+   builders are generators, so the work is run in short slices with a repaint
+   between them, and the progress bar says which stage it is in.
+   ===================================================================== */
+
+var progBox = document.getElementById("prog");
+var progFill = document.getElementById("progFill");
+var progStage = document.getElementById("progStage");
+var progPct = document.getElementById("progPct");
+var progHide = null;
+var SLICE_MS = 20;                 // how long to work before handing back
+var SLICE_MAX = 8;                 // ...and never more than this many slices,
+var CHUNK_MAX = 32;                // so a coarse or clamped clock still yields
+
+function meshSig(p, seg) { return seg.corner + "|" + JSON.stringify(p); }
+
+function progShow(stage) {
+  if (progHide) { clearTimeout(progHide); progHide = null; }
+  progBox.hidden = false;
+  progSet(stage, 0);
+}
+function progSet(stage, frac) {
+  var pct = Math.max(0, Math.min(100, Math.round(frac * 100)));
+  progStage.textContent = stage;
+  progFill.style.width = pct + "%";
+  progPct.textContent = pct + "%";
+}
+function progDone(stage) {
+  progSet(stage, 1);
+  progHide = setTimeout(function () { progBox.hidden = true; progHide = null; }, 2500);
+}
+function defer(fn) { setTimeout(fn, 0); }
+
+/* Drive a builder in slices.  Reuses the cached full-detail mesh when the
+   settings have not changed, which makes export after Render near-instant. */
+function buildAsync(p, seg, base, span, done, fail) {
+  var sig = meshSig(p, seg);
+  if (renderCache && renderCache.sig === sig) {
+    progSet("Building", base + span);
+    return defer(function () { done(renderCache.res); });
+  }
+  var gen = p.mode === "plate" ? plateSteps(p, seg) : binSteps(p, seg);
+  (function pump() {
+    var until = performance.now() + SLICE_MS, n = 0, r;
+    try {
+      for (;;) {
+        r = gen.next();
+        if (r.done) {
+          renderCache = { sig: sig, res: r.value };
+          return done(r.value);
+        }
+        progSet("Building", base + span * r.value);
+        if (++n >= SLICE_MAX || performance.now() > until) return defer(pump);
+      }
+    } catch (e) { fail(e); }
+  })();
+}
+
+/* base64 in 3-byte-aligned slices, so each piece can be encoded on its own
+   and the multi-megabyte string never has to be built up in one go. */
+function encodeAsync(buf, base, span, done, fail) {
+  var b = new Uint8Array(buf), CH = 32766, i = 0, parts = [];
+  (function pump() {
+    var until = performance.now() + SLICE_MS, n = 0;
+    try {
+      while (i < b.length) {
+        parts.push(btoa(String.fromCharCode.apply(null, b.subarray(i, i + CH))));
+        i += CH;
+        if (++n >= CHUNK_MAX || performance.now() > until) {
+          progSet("Encoding", base + span * (i / b.length));
+          return defer(pump);
+        }
+      }
+      done(parts.join(""));
+    } catch (e) { fail(e); }
+  })();
+}
+
+btnRender.addEventListener("click", function () {
+  btnRender.disabled = true; btnStl.disabled = true;
+  badge.textContent = "Rendering\u2026";
+  badge.className = "badge";
+  progShow("Building");
+  buildAsync(P, RENDER_SEG, 0, 1, function (res) {
+    applyMesh(res, "render");
+    progDone("Rendered");
+    btnRender.disabled = false; btnStl.disabled = false;
+  }, function (e) {
+    badge.textContent = "Preview";
+    progDone("Failed");
+    note("Render failed: " + e.message, true);
+    btnRender.disabled = false; btnStl.disabled = false;
+  });
+});
+
+/* ---- STL export: always at render tessellation ---- */
+btnStl.addEventListener("click", function () {
+  var t0 = performance.now(), name = stem() + ".stl";
+  btnStl.disabled = true; btnRender.disabled = true;
+  note("", false);
+  progShow("Building");
+
+  function failed(e) {
+    progDone("Failed");
+    note("Export failed: " + e.message, true);
+    btnStl.disabled = false; btnRender.disabled = false;
+  }
+  function finished(stage) {
+    progDone(stage + " in " + ((performance.now() - t0) / 1000).toFixed(1) + " s");
+    btnStl.disabled = false; btnRender.disabled = false;
+  }
+
+  buildAsync(P, RENDER_SEG, 0, 0.8, function (res) {
+    progSet("Writing STL", 0.8);
+    defer(function () {
+      var buf;
+      try { buf = toSTL(res.mesh); } catch (e) { return failed(e); }
+      if (!ORCA) {
+        progSet("Saving", 0.95);
+        defer(function () {
+          try {
+            var url = URL.createObjectURL(new Blob([buf], { type: "model/stl" }));
+            var a = document.createElement("a");
+            a.href = url; a.download = name;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+          } catch (e) { return failed(e); }
+          finished("Saved");
+        });
+        return;
+      }
+      encodeAsync(buf, 0.85, 0.13, function (b64) {
+        progSet("Handing to OrcaSlicer", 0.98);
+        defer(function () {
+          try {
+            ORCA.postMessage({
+              type: "save_stl", name: name, data: b64,
+              place: document.getElementById("toPlate").checked
+            });
+          } catch (e) { return failed(e); }
+          finished("Sent");
+        });
+      }, failed);
+    });
+  }, failed);
+});
+
+/* ---- bed size from the printer OrcaSlicer has selected ----
+   Asked for once on load, so a fresh panel starts on the right bed, and on
+   demand after that -- a bed typed in by hand is not overwritten behind the
+   user's back. */
+bedFrom = document.getElementById("bedFrom");
+
+function applyBed(m) {
+  // setting .value in script raises no input event, so the note below stands
+  document.getElementById("bedX").value = m.x;
+  document.getElementById("bedY").value = m.y;
+  bedFrom.textContent = m.printer + ": " + m.x + " \u00d7 " + m.y + " mm";
+  onChange(false);
+}
+
+// typing a bed size by hand means it is no longer the printer's
+["bedX", "bedY"].forEach(function (k) {
+  document.getElementById(k).addEventListener("input", function () {
+    if (bedFrom) bedFrom.textContent = "";
+  });
+});
+
+if (ORCA) {
+  document.getElementById("btnBed").addEventListener("click", function () {
+    bedFrom.textContent = "asking OrcaSlicer\u2026";
+    ORCA.postMessage({ type: "get_bed" });
+  });
+  ORCA.postMessage({ type: "get_bed" });
+}
+
+if (ORCA && typeof ORCA.onMessage === "function") {
+  ORCA.onMessage(function (m) {
+    if (!m) return;
+    if (m.type === "bed") applyBed(m);
+    if (m.type === "bed_failed") {
+      bedFrom.textContent = "could not read the printer bed";
+      note("Bed size: " + m.error + " \u2014 set Bed X/Y by hand.", true);
+    }
+    if (m.type === "saved") {
+      note("Written to " + m.path +
+           (m.pending ? " — adding to the build plate…"
+                      : " — import it with File \u203a Import."), true);
+    }
+    if (m.type === "placed") {
+      note(m.placed ? "Added to the build plate: " + m.path
+                    : "Written to " + m.path +
+                      " — could not add it to the plate: " + m.place_error, true);
+    }
+    if (m.type === "save_failed") note("Could not write the STL: " + m.error, true);
+  });
+}
+
+/* ---- copy ---- */
+document.getElementById("copyCmd").addEventListener("click", function (e) {
+  var btn = e.target, original = btn.textContent, text = command();
+  function done(msg) {
+    btn.textContent = msg;
+    setTimeout(function () { btn.textContent = original; }, 1200);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { done("Copied"); },
+                                             function () { fallback(); });
+  } else fallback();
+  function fallback() {
+    var ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); done("Copied"); } catch (_) { done("Copy failed"); }
+    ta.remove();
+  }
+});
+
+/* ---- pointer interaction ---- */
+var last = null, panning = false;
+canvas.addEventListener("pointerdown", function (e) {
+  canvas.setPointerCapture(e.pointerId);
+  last = [e.clientX, e.clientY];
+  panning = e.shiftKey || e.button === 2;
+  dragging = true;
+  canvas.classList.add("dragging");
+  needsDraw = true;
+});
+canvas.addEventListener("pointermove", function (e) {
+  if (!last) return;
+  var dx = e.clientX - last[0], dy = e.clientY - last[1];
+  last = [e.clientX, e.clientY];
+  if (panning) {
+    var s = cam.dist * 0.0016, ce = Math.cos(cam.az), se = Math.sin(cam.az);
+    cam.target[0] += se * dx * s;
+    cam.target[1] += -ce * dx * s;
+    cam.target[2] += dy * s;
+  } else {
+    cam.az -= dx * 0.008;
+    cam.el = Math.max(-1.45, Math.min(1.45, cam.el + dy * 0.008));
+  }
+  needsDraw = true;
+});
+function endDrag() {
+  if (!last) return;
+  last = null; dragging = false;
+  canvas.classList.remove("dragging");
+  needsDraw = true;
+}
+canvas.addEventListener("pointerup", endDrag);
+canvas.addEventListener("pointercancel", endDrag);
+canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+canvas.addEventListener("wheel", function (e) {
+  e.preventDefault();
+  cam.dist = Math.max(30, Math.min(3000, cam.dist * Math.exp(e.deltaY * 0.0012)));
+  needsDraw = true;
+}, { passive: false });
+window.addEventListener("resize", function () { needsDraw = true; });
+darkMQ.addEventListener("change", function () { needsDraw = true; });
+
+/* ---- go ---- */
+if (!gl) {
+  errBox.hidden = false;
+  errBox.textContent = "WebGL is unavailable, so the 3D view cannot be shown. " +
+    "The settings, the OpenSCAD command and STL export still work.";
+  canvas.style.display = "none";
+  readControls(); updateReadout();
+} else {
+  try {
+    initGL();
+    readControls();
+    updateReadout();
+    rebuild("preview");
+    frameCamera();
+    loop();
+  } catch (e) {
+    errBox.hidden = false;
+    errBox.textContent = "Renderer error: " + e.message;
+    canvas.style.display = "none";
+  }
+}
+</script>
+</body>
+</html>
