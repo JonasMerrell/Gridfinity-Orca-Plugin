@@ -458,14 +458,22 @@ body {
   color:var(--muted); margin:0 0 10px; font-weight:600;
 }
 section { margin-bottom:20px; }
-.row { display:grid; grid-template-columns:1fr 112px 30px; align-items:center; gap:8px; margin-bottom:8px; }
-.row label { font-size:13px; }
-.row output { font-variant-numeric:tabular-nums; text-align:right; color:var(--muted); font-size:12px; }
-input[type=range] { width:100%; accent-color:var(--accent); }
-.num { display:grid; grid-template-columns:1fr 82px; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; }
-.num input {
-  width:100%; padding:5px 7px; font:inherit; font-size:13px;
+.row { display:grid; grid-template-columns:1fr 94px 44px; align-items:center; gap:8px; margin-bottom:8px; }
+.row label { font-size:13px; font-weight:500; }
+.row input[type=number] {
+  width:100%; padding:4px 5px; font:inherit; font-size:12.5px; text-align:right;
   border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink);
+  font-variant-numeric:tabular-nums; -moz-appearance:textfield;
+}
+.row input[type=number]:focus, .num input:focus {
+  border-color:var(--accent); outline:none; box-shadow:0 0 0 1px var(--accent);
+}
+input[type=range] { width:100%; accent-color:var(--accent); }
+.num { display:grid; grid-template-columns:1fr 78px; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; }
+.num input {
+  width:100%; padding:4px 6px; font:inherit; font-size:12.5px; text-align:right;
+  border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink);
+  font-variant-numeric:tabular-nums;
 }
 .check { display:flex; align-items:center; gap:9px; margin-bottom:7px; font-size:13px; }
 .check input { accent-color:var(--accent); width:15px; height:15px; }
@@ -485,8 +493,19 @@ pre#cmd {
   padding:9px; font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-all;
   margin:0 0 8px; color:var(--muted); max-height:132px; overflow-y:auto;
 }
-.modes { display:flex; gap:18px; }
-.modes .check { margin-bottom:0; }
+.modes {
+  display:flex; background:var(--code-bg); border:1px solid var(--line);
+  border-radius:7px; padding:3px; gap:3px; margin-bottom:4px;
+}
+.modes label {
+  flex:1; display:flex; align-items:center; justify-content:center;
+  padding:5px 8px; font-size:12.5px; font-weight:500; border-radius:5px;
+  cursor:pointer; color:var(--muted); user-select:none; transition:all .15s ease;
+}
+.modes input[type=radio] { display:none; }
+.modes label.active {
+  background:var(--panel); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,0.08); font-weight:600;
+}
 .btns { display:flex; gap:8px; flex-wrap:wrap; }
 .saved {
   margin:0 0 10px; padding:7px 9px; border-radius:6px; font-size:11.5px;
@@ -548,20 +567,44 @@ canvas.dragging { cursor:grabbing; }
     <section>
       <h2>Model</h2>
       <div class="modes">
-        <label class="check"><input type="radio" name="mode" id="mode_bin" value="bin" checked> Bin</label>
-        <label class="check"><input type="radio" name="mode" id="mode_plate" value="plate"> Baseplate</label>
+        <label id="lbl_mode_bin" class="active"><input type="radio" name="mode" id="mode_bin" value="bin" checked> Bin</label>
+        <label id="lbl_mode_plate"><input type="radio" name="mode" id="mode_plate" value="plate"> Baseplate</label>
       </div>
     </section>
 
-    <section>
-      <h2>Size</h2>
-      <div class="row"><label for="gx">Width</label><input type="range" id="gx" min="1" max="8" step="1" value="2"><output id="gx_o"></output></div>
-      <div class="row"><label for="gy">Depth</label><input type="range" id="gy" min="1" max="8" step="1" value="1"><output id="gy_o"></output></div>
-      <div class="row" id="row_gz"><label for="gz">Height</label><input type="range" id="gz" min="1" max="20" step="1" value="3"><output id="gz_o"></output></div>
+    <section id="binSizeSection">
+      <h2>Bin Size</h2>
+      <div class="row">
+        <label for="gx">Width</label>
+        <input type="range" id="gx" min="1" max="12" step="1" value="2">
+        <input type="number" id="gx_num" min="1" max="50" step="1" value="2">
+      </div>
+      <div class="row">
+        <label for="gy">Depth</label>
+        <input type="range" id="gy" min="1" max="12" step="1" value="1">
+        <input type="number" id="gy_num" min="1" max="50" step="1" value="1">
+      </div>
+      <div class="row" id="row_gz">
+        <label for="gz">Height</label>
+        <input type="range" id="gz" min="1" max="20" step="1" value="6">
+        <input type="number" id="gz_num" min="1" max="100" step="1" value="6">
+      </div>
     </section>
 
     <section id="plateOpts" hidden>
-      <h2>Baseplate</h2>
+      <h2>Baseplate Size</h2>
+      <div class="row">
+        <label for="plate_gx">Width</label>
+        <input type="range" id="plate_gx" min="1" max="20" step="1" value="4">
+        <input type="number" id="plate_gx_num" min="1" max="100" step="1" value="4">
+      </div>
+      <div class="row">
+        <label for="plate_gy">Depth</label>
+        <input type="range" id="plate_gy" min="1" max="20" step="1" value="3">
+        <input type="number" id="plate_gy_num" min="1" max="100" step="1" value="3">
+      </div>
+
+      <h2 style="margin-top:16px">Baseplate Options</h2>
       <div class="num"><label for="plateBase">Solid base (mm)</label><input type="number" id="plateBase" min="0" max="20" step="0.5" value="0"></div>
       <div class="num"><label for="plateR">Corner radius</label><input type="number" id="plateR" min="0" max="12" step="0.5" value="4"></div>
       <div class="num"><label for="bedX">Bed X (mm)</label><input type="number" id="bedX" min="42" max="2000" step="5" value="250"></div>
@@ -576,8 +619,16 @@ canvas.dragging { cursor:grabbing; }
 
     <section id="binOpts">
       <h2>Compartments</h2>
-      <div class="row"><label for="dx">Across X</label><input type="range" id="dx" min="1" max="8" step="1" value="2"><output id="dx_o"></output></div>
-      <div class="row"><label for="dy">Across Y</label><input type="range" id="dy" min="1" max="8" step="1" value="1"><output id="dy_o"></output></div>
+      <div class="row">
+        <label for="dx">Across X</label>
+        <input type="range" id="dx" min="1" max="8" step="1" value="2">
+        <input type="number" id="dx_num" min="1" max="20" step="1" value="2">
+      </div>
+      <div class="row">
+        <label for="dy">Across Y</label>
+        <input type="range" id="dy" min="1" max="8" step="1" value="1">
+        <input type="number" id="dy_num" min="1" max="20" step="1" value="1">
+      </div>
     </section>
 
     <section id="binFeatures">
@@ -669,7 +720,7 @@ var MAGNET_R = 3.25, MAGNET_H = 2.4;
 var SCREW_R = 1.5, SCREW_H = 6.0, HOLE_OFF = 13;
 
 var DEFAULTS = {
-  gx: 2, gy: 1, gz: 3, dx: 2, dy: 1,
+  gx: 2, gy: 1, gz: 6, dx: 2, dy: 1,
   lip: true, scoop: true, label: false, mag: false, screw: false,
   wall: 1.2, floorT: 1.4, scoopR: 6, labelD: 12, fillet: 0.8
 };
@@ -1945,26 +1996,54 @@ function loop() {
 /* =====================================================================
    Parameters, UI
    ===================================================================== */
-var P = Object.assign({}, DEFAULTS, { mode: "bin", plateBase: 0, plateR: 4,
-                                 bedX: 250, bedY: 220, plateGap: 0, plateConnectors: true });
-var INTS = ["gx","gy","gz","dx","dy"];
+var P = Object.assign({}, DEFAULTS, {
+  mode: "bin",
+  plate_gx: 4, plate_gy: 3,
+  plateBase: 0, plateR: 4,
+  bedX: 250, bedY: 220, plateGap: 0, plateConnectors: true
+});
 var FLOATS = ["wall","floorT","scoopR","labelD","fillet","plateBase","plateR","bedX","bedY","plateGap"];
 var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors"];
 var lastTris = 0;
 
 function readControls() {
-  INTS.forEach(function (k) { P[k] = +document.getElementById(k).value; });
+  var isPlate = document.getElementById("mode_plate").checked;
+  P.mode = isPlate ? "plate" : "bin";
+
+  var lblBin = document.getElementById("lbl_mode_bin");
+  var lblPlate = document.getElementById("lbl_mode_plate");
+  if (lblBin) lblBin.className = !isPlate ? "active" : "";
+  if (lblPlate) lblPlate.className = isPlate ? "active" : "";
+
+  document.getElementById("binSizeSection").hidden = isPlate;
+  document.getElementById("binOpts").hidden = isPlate;
+  document.getElementById("binFeatures").hidden = isPlate;
+  document.getElementById("plateOpts").hidden = !isPlate;
+
   FLOATS.forEach(function (k) {
-    var v = parseFloat(document.getElementById(k).value);
-    if (isFinite(v)) P[k] = v;
+    var el = document.getElementById(k);
+    if (el) {
+      var v = parseFloat(el.value);
+      if (isFinite(v)) P[k] = v;
+    }
   });
-  BOOLS.forEach(function (k) { P[k] = document.getElementById(k).checked; });
-  P.mode = document.getElementById("mode_plate").checked ? "plate" : "bin";
-  var plate = P.mode === "plate";
-  document.getElementById("plateOpts").hidden = !plate;
-  document.getElementById("binOpts").hidden = plate;
-  document.getElementById("binFeatures").hidden = plate;
-  document.getElementById("row_gz").style.display = plate ? "none" : "";
+  BOOLS.forEach(function (k) {
+    var el = document.getElementById(k);
+    if (el) P[k] = el.checked;
+  });
+
+  if (!isPlate) {
+    P.gx = +document.getElementById("gx").value;
+    P.gy = +document.getElementById("gy").value;
+    P.gz = +document.getElementById("gz").value;
+    P.dx = +document.getElementById("dx").value;
+    P.dy = +document.getElementById("dy").value;
+  } else {
+    P.plate_gx = +document.getElementById("plate_gx").value;
+    P.plate_gy = +document.getElementById("plate_gy").value;
+    P.gx = P.plate_gx;
+    P.gy = P.plate_gy;
+  }
 }
 
 var fmt = function (n) { return (Math.round(n * 100) / 100).toString(); };
@@ -1990,7 +2069,6 @@ function rebuild(q) {
 function updateReadout() {
   if (P.mode === "plate") return updatePlateReadout();
   var d = derive(P);
-  INTS.forEach(function (k) { document.getElementById(k + "_o").textContent = P[k]; });
   document.getElementById("s_foot").textContent = fmt(d.OX) + " × " + fmt(d.OY) + " mm";
   document.getElementById("s_tall").textContent =
     fmt(d.TOP) + " mm" + (P.lip ? " (body " + fmt(d.H_BODY) + ")" : "");
@@ -2006,7 +2084,6 @@ function updateReadout() {
 
 function updatePlateReadout() {
   var d = derivePlate(P);
-  INTS.forEach(function (k) { document.getElementById(k + "_o").textContent = P[k]; });
   document.getElementById("s_foot").textContent = fmt(d.OX) + " × " + fmt(d.OY) + " mm";
   document.getElementById("s_tall").textContent = fmt(d.H) + " mm";
   document.getElementById("s_comp").textContent = P.gx + " × " + P.gy + " cells";
@@ -2057,15 +2134,62 @@ function onChange(refit) {
   }, 45);
 }
 
-INTS.concat(FLOATS, BOOLS).forEach(function (k) {
+var SLIDERS = [
+  { id: "gx", num: "gx_num", refit: true },
+  { id: "gy", num: "gy_num", refit: true },
+  { id: "gz", num: "gz_num", refit: true },
+  { id: "dx", num: "dx_num", refit: false },
+  { id: "dy", num: "dy_num", refit: false },
+  { id: "plate_gx", num: "plate_gx_num", refit: true },
+  { id: "plate_gy", num: "plate_gy_num", refit: true }
+];
+
+SLIDERS.forEach(function (s) {
+  var rangeEl = document.getElementById(s.id);
+  var numEl = document.getElementById(s.num);
+  if (!rangeEl || !numEl) return;
+
+  rangeEl.addEventListener("input", function () {
+    numEl.value = rangeEl.value;
+    onChange(s.refit);
+  });
+  rangeEl.addEventListener("change", function () {
+    numEl.value = rangeEl.value;
+    onChange(s.refit);
+  });
+
+  numEl.addEventListener("input", function () {
+    var v = parseInt(numEl.value, 10);
+    if (!isNaN(v)) {
+      var min = +rangeEl.min || 1;
+      var max = +rangeEl.max || 50;
+      rangeEl.value = Math.max(min, Math.min(max, v));
+    }
+    onChange(s.refit);
+  });
+  numEl.addEventListener("change", function () {
+    var v = parseInt(numEl.value, 10);
+    if (isNaN(v)) v = +rangeEl.value;
+    var min = +rangeEl.min || 1;
+    var max = +numEl.max || 100;
+    v = Math.max(min, Math.min(max, v));
+    numEl.value = v;
+    rangeEl.value = v;
+    onChange(s.refit);
+  });
+});
+
+FLOATS.concat(BOOLS).forEach(function (k) {
   var el = document.getElementById(k);
-  var refit = ["gx","gy","gz","lip"].indexOf(k) >= 0;
+  if (!el) return;
+  var refit = k === "lip" || k === "plateR";
   el.addEventListener("input", function () { onChange(refit); });
   el.addEventListener("change", function () { onChange(refit); });
 });
 
 ["mode_bin", "mode_plate"].forEach(function (id) {
-  document.getElementById(id).addEventListener("change", function () { onChange(true); });
+  var el = document.getElementById(id);
+  if (el) el.addEventListener("change", function () { onChange(true); });
 });
 
 document.querySelectorAll(".views button").forEach(function (b) {

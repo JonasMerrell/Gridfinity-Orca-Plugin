@@ -11,7 +11,7 @@
 /* [Size] */
 gx = 2;             // [1:1:8] grid units in X (42 mm each)
 gy = 1;             // [1:1:8] grid units in Y
-gz = 3;             // [1:1:20] height units (7 mm each)
+gz = 6;             // [1:1:20] height units (7 mm each)
 
 /* [Compartments] */
 divisions_x = 2;    // [1:1:10]
