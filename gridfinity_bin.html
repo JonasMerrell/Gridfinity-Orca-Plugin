@@ -92,6 +92,26 @@ pre#cmd {
 .modes label.active {
   background:var(--panel); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,0.08); font-weight:600;
 }
+.submodes {
+  background:var(--bg); border:1px solid var(--line); border-radius:6px;
+  padding:2px; gap:2px; margin-bottom:10px;
+}
+.submodes label {
+  padding:4px 6px; font-size:11.5px; border-radius:4px;
+}
+.dyn-list {
+  margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);
+  display:flex; flex-direction:column; gap:6px;
+}
+.dyn-item {
+  display:grid; grid-template-columns:1fr 94px 44px; align-items:center; gap:8px;
+}
+.dyn-item label { font-size:12px; color:var(--muted); }
+.dyn-item input[type=number] {
+  width:100%; padding:3px 5px; font:inherit; font-size:12px; text-align:right;
+  border:1px solid var(--line); border-radius:5px; background:var(--bg); color:var(--ink);
+  font-variant-numeric:tabular-nums; -moz-appearance:textfield;
+}
 .btns { display:flex; gap:8px; flex-wrap:wrap; }
 .saved {
   margin:0 0 10px; padding:7px 9px; border-radius:6px; font-size:11.5px;
@@ -205,15 +225,44 @@ canvas.dragging { cursor:grabbing; }
 
     <section id="binOpts">
       <h2>Compartments</h2>
-      <div class="row">
-        <label for="dx">Across X</label>
-        <input type="range" id="dx" min="1" max="8" step="1" value="2">
-        <input type="number" id="dx_num" min="1" max="20" step="1" value="2">
+      <div class="modes submodes">
+        <label id="lbl_layout_grid" class="active"><input type="radio" name="comp_layout" id="layout_grid" value="grid" checked> Uniform</label>
+        <label id="lbl_layout_rows"><input type="radio" name="comp_layout" id="layout_rows" value="rows"> By Row</label>
+        <label id="lbl_layout_cols"><input type="radio" name="comp_layout" id="layout_cols" value="cols"> By Column</label>
       </div>
-      <div class="row">
-        <label for="dy">Across Y</label>
-        <input type="range" id="dy" min="1" max="8" step="1" value="1">
-        <input type="number" id="dy_num" min="1" max="20" step="1" value="1">
+
+      <!-- Uniform Grid -->
+      <div id="compGridOpts">
+        <div class="row">
+          <label for="dx">Across X</label>
+          <input type="range" id="dx" min="1" max="8" step="1" value="2">
+          <input type="number" id="dx_num" min="1" max="20" step="1" value="2">
+        </div>
+        <div class="row">
+          <label for="dy">Across Y</label>
+          <input type="range" id="dy" min="1" max="8" step="1" value="1">
+          <input type="number" id="dy_num" min="1" max="20" step="1" value="1">
+        </div>
+      </div>
+
+      <!-- By Row -->
+      <div id="compRowOpts" hidden>
+        <div class="row">
+          <label for="num_rows">Total Rows</label>
+          <input type="range" id="num_rows" min="1" max="8" step="1" value="2">
+          <input type="number" id="num_rows_num" min="1" max="20" step="1" value="2">
+        </div>
+        <div id="rowDivList" class="dyn-list"></div>
+      </div>
+
+      <!-- By Column -->
+      <div id="compColOpts" hidden>
+        <div class="row">
+          <label for="num_cols">Total Cols</label>
+          <input type="range" id="num_cols" min="1" max="8" step="1" value="2">
+          <input type="number" id="num_cols_num" min="1" max="20" step="1" value="2">
+        </div>
+        <div id="colDivList" class="dyn-list"></div>
       </div>
     </section>
 
@@ -307,6 +356,7 @@ var SCREW_R = 1.5, SCREW_H = 6.0, HOLE_OFF = 13;
 
 var DEFAULTS = {
   gx: 2, gy: 1, gz: 6, dx: 2, dy: 1,
+  comp_layout: "grid", num_rows: 2, row_divs: [2, 1], num_cols: 2, col_divs: [2, 1],
   lip: true, scoop: true, label: false, mag: false, screw: false,
   wall: 1.2, floorT: 1.4, scoopR: 6, labelD: 12, fillet: 0.8
 };
@@ -318,21 +368,90 @@ function derive(p) {
   var FLOOR = BASE_H + (p.screw ? Math.max(p.floorT, SCREW_H - BASE_H + 0.8)
                                 : p.floorT);
   var IW = OX - 2 * p.wall, ID = OY - 2 * p.wall;
-  var CW = (IW - (p.dx - 1) * p.wall) / p.dx;
-  var CD = (ID - (p.dy - 1) * p.wall) / p.dy;
-  var R_IN = Math.max(0, Math.min(R_TOP - p.wall, CW / 2 - 0.01, CD / 2 - 0.01));
   var depth = H_BODY - FLOOR;
-  var fillet = Math.max(0, Math.min(p.fillet, CW / 2 - 0.01, CD / 2 - 0.01, depth));
-  var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, CD - 2 * fillet, depth)) : 0;
-  var labelD = p.label ? Math.max(0, Math.min(p.labelD, CD - 1, depth)) : 0;
+  var fillet = Math.max(0, Math.min(p.fillet, depth));
+  var cells = [];
+  var valid = depth > 0.2 && IW > 0.2 && ID > 0.2;
+
+  if (p.comp_layout === "rows") {
+    var nr = Math.max(1, p.num_rows || 1);
+    var rowCD = (ID - (nr - 1) * p.wall) / nr;
+    if (rowCD <= 0.2) valid = false;
+    for (var j = 0; j < nr; j++) {
+      var rCols = Math.max(1, (p.row_divs && p.row_divs[j]) || 1);
+      var rCW = (IW - (rCols - 1) * p.wall) / rCols;
+      if (rCW <= 0.2) valid = false;
+      var cy = (j - (nr - 1) / 2) * (rowCD + p.wall);
+      var r_in = Math.max(0, Math.min(R_TOP - p.wall, rCW / 2 - 0.01, rowCD / 2 - 0.01));
+      var rFillet = Math.max(0, Math.min(fillet, rCW / 2 - 0.01, rowCD / 2 - 0.01));
+      var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, rowCD - 2 * rFillet, depth)) : 0;
+      var labelD = p.label ? Math.max(0, Math.min(p.labelD, rowCD - 1, depth)) : 0;
+
+      for (var i = 0; i < rCols; i++) {
+        var cx = (i - (rCols - 1) / 2) * (rCW + p.wall);
+        cells.push({
+          cx: cx, cy: cy, cw: rCW, cd: rowCD,
+          r_in: r_in, fillet: rFillet,
+          scoopR: scoopR, labelD: labelD
+        });
+      }
+    }
+  } else if (p.comp_layout === "cols") {
+    var nc = Math.max(1, p.num_cols || 1);
+    var colCW = (IW - (nc - 1) * p.wall) / nc;
+    if (colCW <= 0.2) valid = false;
+    for (var i = 0; i < nc; i++) {
+      var cRows = Math.max(1, (p.col_divs && p.col_divs[i]) || 1);
+      var cCD = (ID - (cRows - 1) * p.wall) / cRows;
+      if (cCD <= 0.2) valid = false;
+      var cx = (i - (nc - 1) / 2) * (colCW + p.wall);
+      var r_in = Math.max(0, Math.min(R_TOP - p.wall, colCW / 2 - 0.01, cCD / 2 - 0.01));
+      var rFillet = Math.max(0, Math.min(fillet, colCW / 2 - 0.01, cCD / 2 - 0.01));
+      var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, cCD - 2 * rFillet, depth)) : 0;
+      var labelD = p.label ? Math.max(0, Math.min(p.labelD, cCD - 1, depth)) : 0;
+
+      for (var j = 0; j < cRows; j++) {
+        var cy = (j - (cRows - 1) / 2) * (cCD + p.wall);
+        cells.push({
+          cx: cx, cy: cy, cw: colCW, cd: cCD,
+          r_in: r_in, fillet: rFillet,
+          scoopR: scoopR, labelD: labelD
+        });
+      }
+    }
+  } else {
+    // Uniform grid
+    var dx = Math.max(1, p.dx || 1);
+    var dy = Math.max(1, p.dy || 1);
+    var CW = (IW - (dx - 1) * p.wall) / dx;
+    var CD = (ID - (dy - 1) * p.wall) / dy;
+    if (CW <= 0.2 || CD <= 0.2) valid = false;
+    var r_in = Math.max(0, Math.min(R_TOP - p.wall, CW / 2 - 0.01, CD / 2 - 0.01));
+    var rFillet = Math.max(0, Math.min(fillet, CW / 2 - 0.01, CD / 2 - 0.01));
+    var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, CD - 2 * rFillet, depth)) : 0;
+    var labelD = p.label ? Math.max(0, Math.min(p.labelD, CD - 1, depth)) : 0;
+    var pitchX = CW + p.wall, pitchY = CD + p.wall;
+
+    for (var i = 0; i < dx; i++) {
+      for (var j = 0; j < dy; j++) {
+        cells.push({
+          cx: (i - (dx - 1) / 2) * pitchX,
+          cy: (j - (dy - 1) / 2) * pitchY,
+          cw: CW, cd: CD,
+          r_in: r_in, fillet: rFillet,
+          scoopR: scoopR, labelD: labelD
+        });
+      }
+    }
+  }
+
+  var firstCell = cells[0] || { cw: 0, cd: 0 };
   return {
     OX: OX, OY: OY, H_BODY: H_BODY, FLOOR: FLOOR, IW: IW, ID: ID,
-    CW: CW, CD: CD, R_IN: R_IN, depth: depth, fillet: fillet,
-    scoopR: scoopR, labelD: labelD,
+    cells: cells, CW: firstCell.cw, CD: firstCell.cd, depth: depth, fillet: fillet,
     TOP: H_BODY + (p.lip ? LIP_H : 0),
     support: Math.max(0, LIP_INSET - p.wall),
-    pitchX: CW + p.wall, pitchY: CD + p.wall,
-    valid: CW > 0.2 && CD > 0.2 && depth > 0.2
+    valid: valid && cells.length > 0
   };
 }
 
@@ -1237,23 +1356,25 @@ function* binSteps(P, seg) {
 
   /* ---- 3. walls + dividers ---- */
   var comp = [], compSmall = [];
-  var f = d.fillet;
-  for (i = 0; i < P.dx; i++) for (j = 0; j < P.dy; j++) {
-    var cx = (i - (P.dx - 1) / 2) * d.pitchX;
-    var cy = (j - (P.dy - 1) / 2) * d.pitchY;
-    comp.push(offsetLoop(rrLoop(d.CW, d.CD, d.R_IN, ni), cx, cy));
+  var hasFillet = false;
+  for (var cIdx = 0; cIdx < d.cells.length; cIdx++) {
+    var cell = d.cells[cIdx];
+    var cf = cell.fillet;
+    if (cf > 1e-6) hasFillet = true;
+    comp.push(offsetLoop(rrLoop(cell.cw, cell.cd, cell.r_in, ni), cell.cx, cell.cy));
     compSmall.push(offsetLoop(
-      rrLoop(d.CW - 2 * f, d.CD - 2 * f, Math.max(0, d.R_IN - f), ni), cx, cy));
+      rrLoop(Math.max(0.01, cell.cw - 2 * cf), Math.max(0.01, cell.cd - 2 * cf), Math.max(0, cell.r_in - cf), ni), cell.cx, cell.cy));
   }
 
   // outer skin of the wall block
   addBand(m, OUT, d.FLOOR, OUT, d.H_BODY, false);
   // inner skin of every compartment: fillet band, then straight
   for (var c = 0; c < comp.length; c++) {
-    if (f > 1e-6) addBand(m, compSmall[c], d.FLOOR, comp[c], d.FLOOR + f, true);
-    addBand(m, comp[c], d.FLOOR + f, comp[c], d.H_BODY, true);
+    var cellF = d.cells[c].fillet;
+    if (cellF > 1e-6) addBand(m, compSmall[c], d.FLOOR, comp[c], d.FLOOR + cellF, true);
+    addBand(m, comp[c], d.FLOOR + cellF, comp[c], d.H_BODY, true);
   }
-  addCap(m, OUT, f > 1e-6 ? compSmall : comp, d.FLOOR, false);
+  addCap(m, OUT, hasFillet ? compSmall : comp, d.FLOOR, false);
   addCap(m, OUT, comp, d.H_BODY, true);
   yield ++sliced / slices;
 
@@ -1282,13 +1403,12 @@ function* binSteps(P, seg) {
   yield ++sliced / slices;
 
   /* ---- 5. scoops and label tabs ---- */
-  for (i = 0; i < P.dx; i++) for (j = 0; j < P.dy; j++) {
-    var ccx = (i - (P.dx - 1) / 2) * d.pitchX;
-    var ccy = (j - (P.dy - 1) / 2) * d.pitchY;
-    var x0 = ccx - d.CW / 2, x1 = ccx + d.CW / 2;
+  for (var cIdx2 = 0; cIdx2 < d.cells.length; cIdx2++) {
+    var cCell = d.cells[cIdx2];
+    var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
 
-    if (d.scoopR > 1e-6) {
-      var rs = d.scoopR, y0 = ccy - d.CD / 2, sec = [[y0, d.FLOOR]];
+    if (cCell.scoopR > 1e-6) {
+      var rs = cCell.scoopR, y0 = cCell.cy - cCell.cd / 2, sec = [[y0, d.FLOOR]];
       sec.push([y0 + rs, d.FLOOR]);
       for (var k = 0; k <= ni; k++) {                 // quarter arc, clockwise
         var a2 = -Math.PI / 2 - (Math.PI / 2) * k / ni;
@@ -1297,8 +1417,8 @@ function* binSteps(P, seg) {
       addPrismX(m, sec, x0, x1);
     }
 
-    if (d.labelD > 1e-6) {
-      var ld = d.labelD, yb = ccy + d.CD / 2, tb = d.H_BODY;
+    if (cCell.labelD > 1e-6) {
+      var ld = cCell.labelD, yb = cCell.cy + cCell.cd / 2, tb = d.H_BODY;
       addPrismX(m, [[yb, tb], [yb - ld, tb], [yb, tb - ld]], x0, x1);
     }
     yield ++sliced / slices;
@@ -1584,6 +1704,11 @@ function loop() {
    ===================================================================== */
 var P = Object.assign({}, DEFAULTS, {
   mode: "bin",
+  comp_layout: "grid",
+  num_rows: 2,
+  row_divs: [2, 1],
+  num_cols: 2,
+  col_divs: [2, 1],
   plate_gx: 4, plate_gy: 3,
   plateBase: 0, plateR: 4,
   bedX: 250, bedY: 220, plateGap: 0, plateConnectors: true
@@ -1591,6 +1716,114 @@ var P = Object.assign({}, DEFAULTS, {
 var FLOATS = ["wall","floorT","scoopR","labelD","fillet","plateBase","plateR","bedX","bedY","plateGap"];
 var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors"];
 var lastTris = 0;
+
+function renderRowList() {
+  var container = document.getElementById("rowDivList");
+  if (!container) return;
+  container.innerHTML = "";
+  var nr = Math.max(1, P.num_rows || 2);
+  if (!P.row_divs) P.row_divs = [];
+  while (P.row_divs.length < nr) P.row_divs.push(P.row_divs[P.row_divs.length - 1] || 1);
+  if (P.row_divs.length > nr) P.row_divs.length = nr;
+
+  for (var j = 0; j < nr; j++) {
+    (function(rowIndex) {
+      var item = document.createElement("div");
+      item.className = "dyn-item";
+      var lblText = "Row " + (rowIndex + 1) + (rowIndex === 0 ? " (Front)" : rowIndex === nr - 1 ? " (Back)" : "");
+      item.innerHTML = '<label>' + lblText + '</label>' +
+        '<input type="range" min="1" max="8" step="1" value="' + P.row_divs[rowIndex] + '">' +
+        '<input type="number" min="1" max="20" step="1" value="' + P.row_divs[rowIndex] + '">';
+      container.appendChild(item);
+
+      var rangeEl = item.querySelector('input[type="range"]');
+      var numEl = item.querySelector('input[type="number"]');
+
+      rangeEl.addEventListener("input", function() {
+        numEl.value = rangeEl.value;
+        P.row_divs[rowIndex] = +rangeEl.value;
+        onChange(false);
+      });
+      rangeEl.addEventListener("change", function() {
+        numEl.value = rangeEl.value;
+        P.row_divs[rowIndex] = +rangeEl.value;
+        onChange(false);
+      });
+
+      numEl.addEventListener("input", function() {
+        var v = parseInt(numEl.value, 10);
+        if (!isNaN(v)) {
+          rangeEl.value = Math.max(1, Math.min(8, v));
+          P.row_divs[rowIndex] = Math.max(1, v);
+        }
+        onChange(false);
+      });
+      numEl.addEventListener("change", function() {
+        var v = parseInt(numEl.value, 10);
+        if (isNaN(v)) v = +rangeEl.value;
+        v = Math.max(1, v);
+        numEl.value = v;
+        rangeEl.value = Math.min(8, v);
+        P.row_divs[rowIndex] = v;
+        onChange(false);
+      });
+    })(j);
+  }
+}
+
+function renderColList() {
+  var container = document.getElementById("colDivList");
+  if (!container) return;
+  container.innerHTML = "";
+  var nc = Math.max(1, P.num_cols || 2);
+  if (!P.col_divs) P.col_divs = [];
+  while (P.col_divs.length < nc) P.col_divs.push(P.col_divs[P.col_divs.length - 1] || 1);
+  if (P.col_divs.length > nc) P.col_divs.length = nc;
+
+  for (var i = 0; i < nc; i++) {
+    (function(colIndex) {
+      var item = document.createElement("div");
+      item.className = "dyn-item";
+      var lblText = "Col " + (colIndex + 1) + (colIndex === 0 ? " (Left)" : colIndex === nc - 1 ? " (Right)" : "");
+      item.innerHTML = '<label>' + lblText + '</label>' +
+        '<input type="range" min="1" max="8" step="1" value="' + P.col_divs[colIndex] + '">' +
+        '<input type="number" min="1" max="20" step="1" value="' + P.col_divs[colIndex] + '">';
+      container.appendChild(item);
+
+      var rangeEl = item.querySelector('input[type="range"]');
+      var numEl = item.querySelector('input[type="number"]');
+
+      rangeEl.addEventListener("input", function() {
+        numEl.value = rangeEl.value;
+        P.col_divs[colIndex] = +rangeEl.value;
+        onChange(false);
+      });
+      rangeEl.addEventListener("change", function() {
+        numEl.value = rangeEl.value;
+        P.col_divs[colIndex] = +rangeEl.value;
+        onChange(false);
+      });
+
+      numEl.addEventListener("input", function() {
+        var v = parseInt(numEl.value, 10);
+        if (!isNaN(v)) {
+          rangeEl.value = Math.max(1, Math.min(8, v));
+          P.col_divs[colIndex] = Math.max(1, v);
+        }
+        onChange(false);
+      });
+      numEl.addEventListener("change", function() {
+        var v = parseInt(numEl.value, 10);
+        if (isNaN(v)) v = +rangeEl.value;
+        v = Math.max(1, v);
+        numEl.value = v;
+        rangeEl.value = Math.min(8, v);
+        P.col_divs[colIndex] = v;
+        onChange(false);
+      });
+    })(i);
+  }
+}
 
 function readControls() {
   var isPlate = document.getElementById("mode_plate").checked;
@@ -1606,6 +1839,47 @@ function readControls() {
   document.getElementById("binFeatures").hidden = isPlate;
   document.getElementById("plateOpts").hidden = !isPlate;
 
+  if (!isPlate) {
+    var layoutGrid = document.getElementById("layout_grid").checked;
+    var layoutRows = document.getElementById("layout_rows").checked;
+    var layoutCols = document.getElementById("layout_cols").checked;
+
+    P.comp_layout = layoutRows ? "rows" : layoutCols ? "cols" : "grid";
+
+    var lg = document.getElementById("lbl_layout_grid");
+    var lr = document.getElementById("lbl_layout_rows");
+    var lc = document.getElementById("lbl_layout_cols");
+    if (lg) lg.className = layoutGrid ? "active" : "";
+    if (lr) lr.className = layoutRows ? "active" : "";
+    if (lc) lc.className = layoutCols ? "active" : "";
+
+    document.getElementById("compGridOpts").hidden = !layoutGrid;
+    document.getElementById("compRowOpts").hidden = !layoutRows;
+    document.getElementById("compColOpts").hidden = !layoutCols;
+
+    P.gx = +document.getElementById("gx").value;
+    P.gy = +document.getElementById("gy").value;
+    P.gz = +document.getElementById("gz").value;
+    P.dx = +document.getElementById("dx").value;
+    P.dy = +document.getElementById("dy").value;
+
+    var nr = +document.getElementById("num_rows").value;
+    if (nr !== P.num_rows) {
+      P.num_rows = nr;
+      renderRowList();
+    }
+    var nc = +document.getElementById("num_cols").value;
+    if (nc !== P.num_cols) {
+      P.num_cols = nc;
+      renderColList();
+    }
+  } else {
+    P.plate_gx = +document.getElementById("plate_gx").value;
+    P.plate_gy = +document.getElementById("plate_gy").value;
+    P.gx = P.plate_gx;
+    P.gy = P.plate_gy;
+  }
+
   FLOATS.forEach(function (k) {
     var el = document.getElementById(k);
     if (el) {
@@ -1617,19 +1891,6 @@ function readControls() {
     var el = document.getElementById(k);
     if (el) P[k] = el.checked;
   });
-
-  if (!isPlate) {
-    P.gx = +document.getElementById("gx").value;
-    P.gy = +document.getElementById("gy").value;
-    P.gz = +document.getElementById("gz").value;
-    P.dx = +document.getElementById("dx").value;
-    P.dy = +document.getElementById("dy").value;
-  } else {
-    P.plate_gx = +document.getElementById("plate_gx").value;
-    P.plate_gy = +document.getElementById("plate_gy").value;
-    P.gx = P.plate_gx;
-    P.gy = P.plate_gy;
-  }
 }
 
 var fmt = function (n) { return (Math.round(n * 100) / 100).toString(); };
@@ -1658,7 +1919,20 @@ function updateReadout() {
   document.getElementById("s_foot").textContent = fmt(d.OX) + " × " + fmt(d.OY) + " mm";
   document.getElementById("s_tall").textContent =
     fmt(d.TOP) + " mm" + (P.lip ? " (body " + fmt(d.H_BODY) + ")" : "");
-  document.getElementById("s_comp").textContent = fmt(d.CW) + " × " + fmt(d.CD) + " mm";
+
+  var compText = "";
+  if (!d.cells || d.cells.length === 0) {
+    compText = "0 compartments";
+  } else if (d.cells.length === 1) {
+    compText = "1 (" + fmt(d.cells[0].cw) + " × " + fmt(d.cells[0].cd) + " mm)";
+  } else if (P.comp_layout === "rows") {
+    compText = d.cells.length + " in " + P.num_rows + " rows (" + (P.row_divs || []).join(", ") + ")";
+  } else if (P.comp_layout === "cols") {
+    compText = d.cells.length + " in " + P.num_cols + " cols (" + (P.col_divs || []).join(", ") + ")";
+  } else {
+    compText = d.cells.length + " (" + fmt(d.cells[0].cw) + " × " + fmt(d.cells[0].cd) + " mm)";
+  }
+  document.getElementById("s_comp").textContent = compText;
   document.getElementById("s_depth").textContent = fmt(d.depth) + " mm";
   var warn = document.getElementById("s_warn"), msgs = [];
   if (!d.valid) msgs.push("These settings leave no usable compartment.");
@@ -1687,7 +1961,13 @@ function command() {
   var args = [];
   function push(k, v) { args.push("-D " + k + "=" + v); }
   push("gx", P.gx); push("gy", P.gy); push("gz", P.gz);
-  push("divisions_x", P.dx); push("divisions_y", P.dy);
+  if (P.comp_layout === "rows") {
+    push("row_divisions", "'[" + (P.row_divs || []).join(",") + "]'");
+  } else if (P.comp_layout === "cols") {
+    push("col_divisions", "'[" + (P.col_divs || []).join(",") + "]'");
+  } else {
+    push("divisions_x", P.dx); push("divisions_y", P.dy);
+  }
   push("stacking_lip", P.lip); push("scoop", P.scoop); push("label_tab", P.label);
   push("magnet_holes", P.mag); push("screw_holes", P.screw);
   var adv = { wall:"wall", floorT:"floor_thickness", scoopR:"scoop_radius",
@@ -1699,8 +1979,15 @@ function command() {
 function stem() {
   if (P.mode === "plate")
     return "gridfinity_baseplate_" + P.gx + "x" + P.gy;
-  return "gridfinity_" + P.gx + "x" + P.gy + "x" + P.gz +
-         (P.dx * P.dy > 1 ? "_" + P.dx + "x" + P.dy : "");
+  var compSuffix = "";
+  if (P.comp_layout === "rows") {
+    compSuffix = "_rows_" + (P.row_divs || []).join("-");
+  } else if (P.comp_layout === "cols") {
+    compSuffix = "_cols_" + (P.col_divs || []).join("-");
+  } else if (P.dx * P.dy > 1) {
+    compSuffix = "_" + P.dx + "x" + P.dy;
+  }
+  return "gridfinity_" + P.gx + "x" + P.gy + "x" + P.gz + compSuffix;
 }
 
 // Rebuilds are debounced: readouts stay instant while dragging a slider, and
@@ -1726,6 +2013,8 @@ var SLIDERS = [
   { id: "gz", num: "gz_num", refit: true },
   { id: "dx", num: "dx_num", refit: false },
   { id: "dy", num: "dy_num", refit: false },
+  { id: "num_rows", num: "num_rows_num", refit: false },
+  { id: "num_cols", num: "num_cols_num", refit: false },
   { id: "plate_gx", num: "plate_gx_num", refit: true },
   { id: "plate_gy", num: "plate_gy_num", refit: true }
 ];
@@ -1773,9 +2062,9 @@ FLOATS.concat(BOOLS).forEach(function (k) {
   el.addEventListener("change", function () { onChange(refit); });
 });
 
-["mode_bin", "mode_plate"].forEach(function (id) {
+["mode_bin", "mode_plate", "layout_grid", "layout_rows", "layout_cols"].forEach(function (id) {
   var el = document.getElementById(id);
-  if (el) el.addEventListener("change", function () { onChange(true); });
+  if (el) el.addEventListener("change", function () { onChange(id.startsWith("mode")); });
 });
 
 document.querySelectorAll(".views button").forEach(function (b) {
@@ -2056,6 +2345,8 @@ window.addEventListener("resize", function () { needsDraw = true; });
 darkMQ.addEventListener("change", function () { needsDraw = true; });
 
 /* ---- go ---- */
+renderRowList();
+renderColList();
 if (!gl) {
   errBox.hidden = false;
   errBox.textContent = "WebGL is unavailable, so the 3D view cannot be shown. " +

@@ -16,6 +16,8 @@ gz = 6;             // [1:1:20] height units (7 mm each)
 /* [Compartments] */
 divisions_x = 2;    // [1:1:10]
 divisions_y = 1;    // [1:1:10]
+row_divisions = []; // Custom divisions across X for each row (from -Y front to +Y back), e.g. [2, 1, 3]
+col_divisions = []; // Custom divisions across Y for each column (from -X left to +X right), e.g. [2, 3]
 
 /* [Features] */
 stacking_lip = true;
@@ -153,50 +155,137 @@ module lip_cavity() {
     prism(nw, nd, nr, z3, tw, td, tr, z4);
 }
 
+module single_compartment(cx, cy, cw, cd) {
+    r_in = min(R_TOP - wall, cw / 2 - eps, cd / 2 - eps);
+    f = min(inner_fillet, cw / 2 - eps, cd / 2 - eps);
+    translate([cx, cy, 0]) {
+        prism(cw - 2 * f, cd - 2 * f, max(0, r_in - f), FLOOR,
+              cw, cd, r_in, FLOOR + f);
+        prism(cw, cd, r_in, FLOOR + f, cw, cd, r_in, H_BODY + eps);
+    }
+}
+
 // Concave finger ramp at the -Y wall of a compartment.
-module scoop_solid(i, j) {
-    rs = min(scoop_radius, CD - 2 * inner_fillet, H_BODY - FLOOR);
+module single_scoop(cx, cy, cw, cd) {
+    f = min(inner_fillet, cw / 2 - eps, cd / 2 - eps);
+    rs = min(scoop_radius, cd - 2 * f, H_BODY - FLOOR);
     if (rs > 0)
-        translate([cx(i) - CW / 2 - eps, cy(j) - CD / 2, FLOOR])
+        translate([cx - cw / 2 - eps, cy - cd / 2, FLOOR])
         difference() {
-            cube([CW + 2 * eps, rs, rs]);
+            cube([cw + 2 * eps, rs, rs]);
             translate([-eps, rs, rs]) rotate([0, 90, 0])
-                cylinder(r = rs, h = CW + 4 * eps);
+                cylinder(r = rs, h = cw + 4 * eps);
         }
 }
 
 // Label ledge at the +Y wall, 45 deg underside so it prints unsupported.
-module label_solid(i, j) {
-    ld = min(label_depth, CD - 1, H_BODY - FLOOR);
-    yb = cy(j) + CD / 2;
+module single_label(cx, cy, cw, cd) {
+    ld = min(label_depth, cd - 1, H_BODY - FLOOR);
+    yb = cy + cd / 2;
     if (ld > 0)
         hull() {
-            translate([cx(i) - CW / 2 - eps, yb - ld, H_BODY - eps])
-                cube([CW + 2 * eps, ld, eps + LIP_H]);
-            translate([cx(i) - CW / 2 - eps, yb - eps, H_BODY - ld])
-                cube([CW + 2 * eps, eps, eps]);
+            translate([cx - cw / 2 - eps, yb - ld, H_BODY - eps])
+                cube([cw + 2 * eps, ld, eps + LIP_H]);
+            translate([cx - cw / 2 - eps, yb - eps, H_BODY - ld])
+                cube([cw + 2 * eps, eps, eps]);
         }
 }
 
-module compartment(i, j) {
-    f = min(inner_fillet, CW / 2 - eps, CD / 2 - eps);
-    translate([cx(i), cy(j), 0]) {
-        prism(CW - 2 * f, CD - 2 * f, max(0, R_IN - f), FLOOR,
-              CW, CD, R_IN, FLOOR + f);
-        prism(CW, CD, R_IN, FLOOR + f, CW, CD, R_IN, H_BODY + eps);
-    }
-}
-
 module interior() {
+    use_rows = len(row_divisions) > 0;
+    use_cols = len(col_divisions) > 0 && !use_rows;
+
     difference() {
-        for (i = [0 : divisions_x - 1], j = [0 : divisions_y - 1])
-            compartment(i, j);
-        if (scoop)
-            for (i = [0 : divisions_x - 1], j = [0 : divisions_y - 1])
-                scoop_solid(i, j);
-        if (label_tab)
-            for (i = [0 : divisions_x - 1], j = [0 : divisions_y - 1])
-                label_solid(i, j);
+        union() {
+            if (use_rows) {
+                nr = len(row_divisions);
+                cd = (ID - (nr - 1) * wall) / nr;
+                for (j = [0 : nr - 1]) {
+                    rcols = row_divisions[j];
+                    cw = (IW - (rcols - 1) * wall) / rcols;
+                    cy = -ID / 2 + j * (cd + wall) + cd / 2;
+                    for (i = [0 : rcols - 1]) {
+                        cx = -IW / 2 + i * (cw + wall) + cw / 2;
+                        single_compartment(cx, cy, cw, cd);
+                    }
+                }
+            } else if (use_cols) {
+                nc = len(col_divisions);
+                cw = (IW - (nc - 1) * wall) / nc;
+                for (i = [0 : nc - 1]) {
+                    crows = col_divisions[i];
+                    cd = (ID - (crows - 1) * wall) / crows;
+                    cx = -IW / 2 + i * (cw + wall) + cw / 2;
+                    for (j = [0 : crows - 1]) {
+                        cy = -ID / 2 + j * (cd + wall) + cd / 2;
+                        single_compartment(cx, cy, cw, cd);
+                    }
+                }
+            } else {
+                for (i = [0 : divisions_x - 1], j = [0 : divisions_y - 1])
+                    single_compartment(cx(i), cy(j), CW, CD);
+            }
+        }
+        if (scoop) {
+            if (use_rows) {
+                nr = len(row_divisions);
+                cd = (ID - (nr - 1) * wall) / nr;
+                for (j = [0 : nr - 1]) {
+                    rcols = row_divisions[j];
+                    cw = (IW - (rcols - 1) * wall) / rcols;
+                    cy = -ID / 2 + j * (cd + wall) + cd / 2;
+                    for (i = [0 : rcols - 1]) {
+                        cx = -IW / 2 + i * (cw + wall) + cw / 2;
+                        single_scoop(cx, cy, cw, cd);
+                    }
+                }
+            } else if (use_cols) {
+                nc = len(col_divisions);
+                cw = (IW - (nc - 1) * wall) / nc;
+                for (i = [0 : nc - 1]) {
+                    crows = col_divisions[i];
+                    cd = (ID - (crows - 1) * wall) / crows;
+                    cx = -IW / 2 + i * (cw + wall) + cw / 2;
+                    for (j = [0 : crows - 1]) {
+                        cy = -ID / 2 + j * (cd + wall) + cd / 2;
+                        single_scoop(cx, cy, cw, cd);
+                    }
+                }
+            } else {
+                for (i = [0 : divisions_x - 1], j = [0 : divisions_y - 1])
+                    single_scoop(cx(i), cy(j), CW, CD);
+            }
+        }
+        if (label_tab) {
+            if (use_rows) {
+                nr = len(row_divisions);
+                cd = (ID - (nr - 1) * wall) / nr;
+                for (j = [0 : nr - 1]) {
+                    rcols = row_divisions[j];
+                    cw = (IW - (rcols - 1) * wall) / rcols;
+                    cy = -ID / 2 + j * (cd + wall) + cd / 2;
+                    for (i = [0 : rcols - 1]) {
+                        cx = -IW / 2 + i * (cw + wall) + cw / 2;
+                        single_label(cx, cy, cw, cd);
+                    }
+                }
+            } else if (use_cols) {
+                nc = len(col_divisions);
+                cw = (IW - (nc - 1) * wall) / nc;
+                for (i = [0 : nc - 1]) {
+                    crows = col_divisions[i];
+                    cd = (ID - (crows - 1) * wall) / crows;
+                    cx = -IW / 2 + i * (cw + wall) + cw / 2;
+                    for (j = [0 : crows - 1]) {
+                        cy = -ID / 2 + j * (cd + wall) + cd / 2;
+                        single_label(cx, cy, cw, cd);
+                    }
+                }
+            } else {
+                for (i = [0 : divisions_x - 1], j = [0 : divisions_y - 1])
+                    single_label(cx(i), cy(j), CW, CD);
+            }
+        }
     }
 }
 
