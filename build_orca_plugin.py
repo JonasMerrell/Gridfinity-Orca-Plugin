@@ -56,12 +56,12 @@ TEMPLATE = '''# /// script
 # dependencies = []
 #
 # [tool.orcaslicer.plugin]
-# name = "Gridfinity Bin Generator"
-# description = "Parametric Gridfinity bins: configure, export STL, drop straight onto the plate."
+# name = "Gridfinity Bin & Baseplate Generator"
+# description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.4.0"
+# version = "1.5.0"
 # ///
-"""Gridfinity bin generator for OrcaSlicer.
+"""Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
 
@@ -69,16 +69,12 @@ Registers two capabilities:
   * a Script capability -- the same panel as a floating window, from the
     Plugins dialog
 
-The bin is built to spec (42 mm grid, 7 mm height units, correct stacking foot
-and lip). Export writes a binary STL and, optionally, asks the running
-OrcaSlicer to open it so the model lands on the build plate.
-
-Placing on the plate: the plugin host API is read-only with respect to the
-scene, so there is no direct "add object" call. Instead the STL path is handed
-to the already-running instance over its own single-instance D-Bus interface
-(com.orcaslicer.OrcaSlicer.InstanceCheck.Object<hash>, method AnotherInstance),
-which routes it through the normal "load file" path. If that fails for any
-reason the STL is still written and the panel says so.
+Features:
+  * Parametric Gridfinity bins (42 mm grid, 7 mm height units)
+  * Advanced custom compartments (Uniform, Per-Row, Per-Column)
+  * Interlocking baseplates with puzzle connectors & print-bed splitting
+  * Millimeter sizing with automatic unit fitting and optional edge padding
+  * Direct build plate STL injection via single-instance IPC
 
 GENERATED FILE. Edit gridfinity_bin.html and re-run build_orca_plugin.py.
 """
