@@ -38,14 +38,17 @@ A parametric 3D generator plugin for **OrcaSlicer** that configures, previews, a
 
 ## 📥 Installation
 
-### Method 1: Automatic Install via Build Script
+### Method 1: Subscribe via Orca Cloud
+Search for **Gridfinity Bin & Baseplate Generator** in Orca Cloud's **Plugin Hub** and click **Subscribe** to receive automatic updates directly in OrcaSlicer.
+
+### Method 2: Automatic Install via Build Script
 Run the builder with `--install` to compile and copy the target-tagged plugin into OrcaSlicer's plugin directory:
 
 ```bash
 python3 build_orca_plugin.py --install
 ```
 
-### Method 2: Manual Installation
+### Method 3: Manual Installation
 1. Clone or download this repository.
 2. Build target plugins:
    ```bash
@@ -56,18 +59,6 @@ python3 build_orca_plugin.py --install
    * **Windows**: `%APPDATA%\OrcaSlicer\plugins\gridfinity_bin\gridfinity_bin_plugin_win_x86_64.py`
    * **macOS**: `~/Library/Application Support/OrcaSlicer/plugins/gridfinity_bin/gridfinity_bin_plugin_macosx_arm64.py`
 4. Restart OrcaSlicer. You will see a new **Gridfinity** tab in the top navigation bar.
-
-### Method 3: Subscribe via Orca Cloud
-Search for **Gridfinity Bin & Baseplate Generator** in Orca Cloud's **Plugin Hub** and click **Subscribe** to receive automatic updates directly in OrcaSlicer.
-
----
-
-## ☁️ Continuous Deployment via GitHub (Orca Cloud)
-
-This repository includes a GitHub Actions workflow (`.github/workflows/publish-orcacloud.yml`) for zero-secret [OIDC trusted publishing to Orca Cloud](https://cloud.orcaslicer.com/wiki/#publish-from-github):
-
-1. Connect this repository in [Orca Cloud](https://cloud.orcaslicer.com) under **Shared Plugins > (Your Plugin) > Edit plugin > GitHub publishing** by entering `JonasMerrell/Gridfinity-Orca-Plugin`.
-2. Whenever a new GitHub Release is published (e.g. `v1.5.0`), GitHub Actions will automatically compile all 6 platform targets and upload them directly to the Orca Cloud Plugin Hub.
 
 ---
 
