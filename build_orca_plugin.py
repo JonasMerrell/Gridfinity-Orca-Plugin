@@ -23,8 +23,8 @@ SUPPORTED_TARGETS = [
     "linux_arm64",
     "win_x86_64",
     "win_arm64",
-    "mac_arm64",
-    "mac_x86_64",
+    "macosx_arm64",
+    "macosx_x86_64",
 ]
 
 
@@ -34,7 +34,7 @@ def host_target():
         "linux": "linux",
         "win32": "win",
         "cygwin": "win",
-        "darwin": "mac",
+        "darwin": "macosx",
     }
     os_name = os_map.get(sys.platform, sys.platform)
     arch_raw = platform.machine().lower()

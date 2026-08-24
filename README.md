@@ -54,7 +54,7 @@ python3 build_orca_plugin.py --install
 3. Copy the generated `.py` file matching your operating system and architecture into an `orca_plugins/` subfolder:
    * **Linux**: `~/.config/OrcaSlicer/plugins/gridfinity_bin/gridfinity_bin_plugin_linux_x86_64.py`
    * **Windows**: `%APPDATA%\OrcaSlicer\plugins\gridfinity_bin\gridfinity_bin_plugin_win_x86_64.py`
-   * **macOS**: `~/Library/Application Support/OrcaSlicer/plugins/gridfinity_bin/gridfinity_bin_plugin_mac_arm64.py`
+   * **macOS**: `~/Library/Application Support/OrcaSlicer/plugins/gridfinity_bin/gridfinity_bin_plugin_macosx_arm64.py`
 4. Restart OrcaSlicer. You will see a new **Gridfinity** tab in the top navigation bar.
 
 ### Method 3: Subscribe via Orca Cloud
@@ -79,8 +79,8 @@ This repository includes a GitHub Actions workflow (`.github/workflows/publish-o
 | **Linux** | ARM64 | `gridfinity_bin_plugin_linux_arm64.py` |
 | **Windows** | x86_64 | `gridfinity_bin_plugin_win_x86_64.py` |
 | **Windows** | ARM64 | `gridfinity_bin_plugin_win_arm64.py` |
-| **macOS** | Apple Silicon (ARM64) | `gridfinity_bin_plugin_mac_arm64.py` |
-| **macOS** | Intel (x86_64) | `gridfinity_bin_plugin_mac_x86_64.py` |
+| **macOS** | Apple Silicon (ARM64) | `gridfinity_bin_plugin_macosx_arm64.py` |
+| **macOS** | Intel (x86_64) | `gridfinity_bin_plugin_macosx_x86_64.py` |
 
 ---
 
