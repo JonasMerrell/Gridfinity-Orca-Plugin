@@ -608,15 +608,40 @@ canvas.dragging { cursor:grabbing; }
 
     <section id="plateOpts" hidden>
       <h2>Baseplate Size</h2>
-      <div class="row">
-        <label for="plate_gx">Width</label>
-        <input type="range" id="plate_gx" min="1" max="20" step="1" value="4">
-        <input type="number" id="plate_gx_num" min="1" max="50" step="1" value="4">
+      <div class="modes submodes">
+        <label id="lbl_plate_units" class="active"><input type="radio" name="plate_size_mode" id="plate_mode_units" value="units" checked> Grid Units</label>
+        <label id="lbl_plate_mm"><input type="radio" name="plate_size_mode" id="plate_mode_mm" value="mm"> Dimensions (mm)</label>
       </div>
-      <div class="row">
-        <label for="plate_gy">Depth</label>
-        <input type="range" id="plate_gy" min="1" max="20" step="1" value="3">
-        <input type="number" id="plate_gy_num" min="1" max="50" step="1" value="3">
+
+      <!-- Grid Units Mode -->
+      <div id="plateUnitsOpts">
+        <div class="row">
+          <label for="plate_gx">Width</label>
+          <input type="range" id="plate_gx" min="1" max="20" step="1" value="4">
+          <input type="number" id="plate_gx_num" min="1" max="50" step="1" value="4">
+        </div>
+        <div class="row">
+          <label for="plate_gy">Depth</label>
+          <input type="range" id="plate_gy" min="1" max="20" step="1" value="3">
+          <input type="number" id="plate_gy_num" min="1" max="50" step="1" value="3">
+        </div>
+      </div>
+
+      <!-- Millimeters Mode -->
+      <div id="plateMmOpts" hidden>
+        <div class="row">
+          <label for="plate_mm_x">Width (mm)</label>
+          <input type="range" id="plate_mm_x" min="42" max="600" step="1" value="168">
+          <input type="number" id="plate_mm_x_num" min="10" max="2000" step="1" value="168">
+        </div>
+        <div class="row">
+          <label for="plate_mm_y">Depth (mm)</label>
+          <input type="range" id="plate_mm_y" min="42" max="600" step="1" value="126">
+          <input type="number" id="plate_mm_y_num" min="10" max="2000" step="1" value="126">
+        </div>
+        <div id="plateFitInfo" style="font-size:11.5px; color:var(--muted); margin-top:2px; margin-bottom:8px">
+          Fits 4 &times; 3 units (167.5 &times; 125.5 mm)
+        </div>
       </div>
 
       <h2 style="margin-top:16px">Baseplate Options</h2>
@@ -2116,6 +2141,9 @@ var P = Object.assign({}, DEFAULTS, {
   row_divs: [2, 1],
   num_cols: 2,
   col_divs: [2, 1],
+  plate_size_mode: "units",
+  plate_mm_x: 168,
+  plate_mm_y: 126,
   plate_gx: 4, plate_gy: 3,
   plateBase: 0, plateR: 4,
   bedX: 250, bedY: 220, plateGap: 0, plateConnectors: true
@@ -2124,14 +2152,22 @@ var FLOATS = ["wall","floorT","scoopR","labelD","fillet","plateBase","plateR","b
 var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors"];
 var lastTris = 0;
 
-function getVal(id, numId) {
+function mmToUnits(mm) {
+  return Math.max(1, Math.floor((mm + GAP) / GRID));
+}
+
+function getVal(id, numId, maxVal) {
+  var limit = maxVal || 50;
   var numEl = document.getElementById(numId);
   if (numEl) {
-    var v = parseInt(numEl.value, 10);
-    if (!isNaN(v)) return Math.max(1, Math.min(50, v));
+    var v = parseFloat(numEl.value);
+    if (isFinite(v)) return Math.max(1, Math.min(limit, v));
   }
   var rangeEl = document.getElementById(id);
-  if (rangeEl) return Math.max(1, Math.min(50, parseInt(rangeEl.value, 10) || 1));
+  if (rangeEl) {
+    var rv = parseFloat(rangeEl.value);
+    if (isFinite(rv)) return Math.max(1, Math.min(limit, rv));
+  }
   return 1;
 }
 
@@ -2292,8 +2328,57 @@ function readControls() {
       renderColList();
     }
   } else {
-    P.plate_gx = getVal("plate_gx", "plate_gx_num");
-    P.plate_gy = getVal("plate_gy", "plate_gy_num");
+    var isMm = document.getElementById("plate_mode_mm").checked;
+    P.plate_size_mode = isMm ? "mm" : "units";
+
+    var lblUnits = document.getElementById("lbl_plate_units");
+    var lblMm = document.getElementById("lbl_plate_mm");
+    if (lblUnits) lblUnits.className = !isMm ? "active" : "";
+    if (lblMm) lblMm.className = isMm ? "active" : "";
+
+    document.getElementById("plateUnitsOpts").hidden = isMm;
+    document.getElementById("plateMmOpts").hidden = !isMm;
+
+    if (isMm) {
+      P.plate_mm_x = getVal("plate_mm_x", "plate_mm_x_num", 2000);
+      P.plate_mm_y = getVal("plate_mm_y", "plate_mm_y_num", 2000);
+      P.plate_gx = mmToUnits(P.plate_mm_x);
+      P.plate_gy = mmToUnits(P.plate_mm_y);
+
+      var gxEl = document.getElementById("plate_gx");
+      var gxNumEl = document.getElementById("plate_gx_num");
+      if (gxEl) gxEl.value = Math.min(+gxEl.max || 20, P.plate_gx);
+      if (gxNumEl) gxNumEl.value = P.plate_gx;
+
+      var gyEl = document.getElementById("plate_gy");
+      var gyNumEl = document.getElementById("plate_gy_num");
+      if (gyEl) gyEl.value = Math.min(+gyEl.max || 20, P.plate_gy);
+      if (gyNumEl) gyNumEl.value = P.plate_gy;
+    } else {
+      P.plate_gx = getVal("plate_gx", "plate_gx_num", 50);
+      P.plate_gy = getVal("plate_gy", "plate_gy_num", 50);
+
+      P.plate_mm_x = Math.round(P.plate_gx * GRID);
+      P.plate_mm_y = Math.round(P.plate_gy * GRID);
+
+      var mmXEl = document.getElementById("plate_mm_x");
+      var mmXNumEl = document.getElementById("plate_mm_x_num");
+      if (mmXEl) mmXEl.value = Math.min(+mmXEl.max || 600, P.plate_mm_x);
+      if (mmXNumEl) mmXNumEl.value = P.plate_mm_x;
+
+      var mmYEl = document.getElementById("plate_mm_y");
+      var mmYNumEl = document.getElementById("plate_mm_y_num");
+      if (mmYEl) mmYEl.value = Math.min(+mmYEl.max || 600, P.plate_mm_y);
+      if (mmYNumEl) mmYNumEl.value = P.plate_mm_y;
+    }
+
+    var fitInfo = document.getElementById("plateFitInfo");
+    if (fitInfo) {
+      var actualOX = P.plate_gx * GRID - GAP;
+      var actualOY = P.plate_gy * GRID - GAP;
+      fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units (" + fmt(actualOX) + " × " + fmt(actualOY) + " mm)";
+    }
+
     P.gx = P.plate_gx;
     P.gy = P.plate_gy;
   }
@@ -2363,7 +2448,11 @@ function updatePlateReadout() {
   var d = derivePlate(P);
   document.getElementById("s_foot").textContent = fmt(d.OX) + " × " + fmt(d.OY) + " mm";
   document.getElementById("s_tall").textContent = fmt(d.H) + " mm";
-  document.getElementById("s_comp").textContent = P.gx + " × " + P.gy + " cells";
+  var sizeText = P.gx + " × " + P.gy + " cells";
+  if (P.plate_size_mode === "mm") {
+    sizeText += " (target " + P.plate_mm_x + " × " + P.plate_mm_y + " mm)";
+  }
+  document.getElementById("s_comp").textContent = sizeText;
   var pl = planPlate(P), np = 0, sx;
   for (sx = 0; sx < pl.cols.length; sx++) np += pl.rows[sx % 2].length;
   document.getElementById("s_depth").textContent =
@@ -2430,7 +2519,9 @@ var SLIDERS = [
   { id: "num_rows", num: "num_rows_num", refit: false },
   { id: "num_cols", num: "num_cols_num", refit: false },
   { id: "plate_gx", num: "plate_gx_num", refit: true },
-  { id: "plate_gy", num: "plate_gy_num", refit: true }
+  { id: "plate_gy", num: "plate_gy_num", refit: true },
+  { id: "plate_mm_x", num: "plate_mm_x_num", refit: true },
+  { id: "plate_mm_y", num: "plate_mm_y_num", refit: true }
 ];
 
 SLIDERS.forEach(function (s) {
@@ -2448,8 +2539,8 @@ SLIDERS.forEach(function (s) {
   });
 
   numEl.addEventListener("input", function () {
-    var v = parseInt(numEl.value, 10);
-    if (!isNaN(v)) {
+    var v = parseFloat(numEl.value);
+    if (isFinite(v)) {
       var min = +rangeEl.min || 1;
       var max = +rangeEl.max || 8;
       rangeEl.value = Math.max(min, Math.min(max, v));
@@ -2457,10 +2548,10 @@ SLIDERS.forEach(function (s) {
     onChange(s.refit);
   });
   numEl.addEventListener("change", function () {
-    var v = parseInt(numEl.value, 10);
-    if (isNaN(v)) v = +rangeEl.value;
-    var min = 1;
-    var max = 50;
+    var v = parseFloat(numEl.value);
+    if (!isFinite(v)) v = +rangeEl.value;
+    var min = +numEl.min || 1;
+    var max = +numEl.max || 50;
     v = Math.max(min, Math.min(max, v));
     numEl.value = v;
     rangeEl.value = Math.min(+rangeEl.max || 8, v);
@@ -2476,9 +2567,9 @@ FLOATS.concat(BOOLS).forEach(function (k) {
   el.addEventListener("change", function () { onChange(refit); });
 });
 
-["mode_bin", "mode_plate", "layout_grid", "layout_rows", "layout_cols"].forEach(function (id) {
+["mode_bin", "mode_plate", "layout_grid", "layout_rows", "layout_cols", "plate_mode_units", "plate_mode_mm"].forEach(function (id) {
   var el = document.getElementById(id);
-  if (el) el.addEventListener("change", function () { onChange(id.startsWith("mode")); });
+  if (el) el.addEventListener("change", function () { onChange(id.startsWith("mode") || id.startsWith("plate_mode")); });
 });
 
 document.querySelectorAll(".views button").forEach(function (b) {
@@ -2656,6 +2747,16 @@ function applyBed(m) {
   // setting .value in script raises no input event, so the note below stands
   document.getElementById("bedX").value = m.x;
   document.getElementById("bedY").value = m.y;
+  var mmX = document.getElementById("plate_mm_x");
+  var mmXNum = document.getElementById("plate_mm_x_num");
+  var mmY = document.getElementById("plate_mm_y");
+  var mmYNum = document.getElementById("plate_mm_y_num");
+  if (mmX && mmXNum && mmY && mmYNum) {
+    mmX.value = Math.min(+mmX.max || 600, m.x);
+    mmXNum.value = m.x;
+    mmY.value = Math.min(+mmY.max || 600, m.y);
+    mmYNum.value = m.y;
+  }
   bedFrom.textContent = m.printer + ": " + m.x + " \u00d7 " + m.y + " mm";
   onChange(false);
 }
