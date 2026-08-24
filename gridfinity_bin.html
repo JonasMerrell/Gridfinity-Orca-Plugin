@@ -165,11 +165,6 @@ canvas.dragging { cursor:grabbing; }
 <body>
 <div class="app">
   <aside class="panel">
-    <header>
-      <h1>Gridfinity Bin</h1>
-      <p class="sub">Geometry matches <code>gridfinity_bin.scad</code></p>
-    </header>
-
     <section>
       <h2>Model</h2>
       <div class="modes">
@@ -310,8 +305,6 @@ canvas.dragging { cursor:grabbing; }
         <div class="lbl"><span id="progStage"></span><span id="progPct"></span></div>
       </div>
       <div id="saved" class="saved" hidden></div>
-      <pre id="cmd"></pre>
-      <div class="btns"><button id="copyCmd">Copy OpenSCAD command</button></div>
     </section>
   </aside>
 
@@ -1950,7 +1943,6 @@ function updateReadout() {
   else if (d.depth < 2) msgs.push("Compartments are under 2 mm deep — raise the height.");
   warn.hidden = msgs.length === 0;
   warn.textContent = msgs.join(" ");
-  document.getElementById("cmd").textContent = command();
 }
 
 function updatePlateReadout() {
@@ -1963,9 +1955,6 @@ function updatePlateReadout() {
   document.getElementById("s_depth").textContent =
     np + (np === 1 ? " piece" : " pieces") + "  (" + pl.cols.join("+") + " cols)";
   document.getElementById("s_warn").hidden = true;
-  document.getElementById("cmd").textContent =
-    "Baseplate geometry is generated here, not by gridfinity_bin.scad.\n" +
-    "Verified against GridFlock: volume within 0.01% of its OpenSCAD output.";
 }
 
 function command() {
@@ -2293,25 +2282,6 @@ if (ORCA && typeof ORCA.onMessage === "function") {
     if (m.type === "save_failed") note("Could not write the STL: " + m.error, true);
   });
 }
-
-/* ---- copy ---- */
-document.getElementById("copyCmd").addEventListener("click", function (e) {
-  var btn = e.target, original = btn.textContent, text = command();
-  function done(msg) {
-    btn.textContent = msg;
-    setTimeout(function () { btn.textContent = original; }, 1200);
-  }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(function () { done("Copied"); },
-                                             function () { fallback(); });
-  } else fallback();
-  function fallback() {
-    var ta = document.createElement("textarea");
-    ta.value = text; document.body.appendChild(ta); ta.select();
-    try { document.execCommand("copy"); done("Copied"); } catch (_) { done("Copy failed"); }
-    ta.remove();
-  }
-});
 
 /* ---- pointer interaction ---- */
 var last = null, panning = false;
