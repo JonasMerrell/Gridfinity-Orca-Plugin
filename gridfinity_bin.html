@@ -1483,50 +1483,177 @@ function* binSteps(P, seg) {
   yield ++sliced / slices;
 
   /* ---- 5. scoops and label tabs ---- */
-  for (var cIdx2 = 0; cIdx2 < d.cells.length; cIdx2++) {
-    var cCell = d.cells[cIdx2];
+  function addSeamlessLabelTab(cCell) {
+    var ld = cCell.labelD;
+    if (ld <= 1e-6) return;
+
     var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
-    var y0 = cCell.cy - cCell.cd / 2, yb = cCell.cy + cCell.cd / 2;
+    var yb = cCell.cy + cCell.cd / 2, tb = d.H_BODY;
 
     var isLeftOuter  = Math.abs(x0 - (-d.IW / 2)) < 1e-3;
     var isRightOuter = Math.abs(x1 - (d.IW / 2)) < 1e-3;
-    var isFrontOuter = Math.abs(y0 - (-d.ID / 2)) < 1e-3;
     var isBackOuter  = Math.abs(yb - (d.ID / 2)) < 1e-3;
 
     var rOuter = Math.max(0, R_TOP - P.wall);
     var rInner = Math.max(0, cCell.fillet || 0);
 
-    // Front corners (for scoop)
-    var rL_front = (isLeftOuter && isFrontOuter) ? rOuter : rInner;
-    var rR_front = (isRightOuter && isFrontOuter) ? rOuter : rInner;
-    var xs0_scoop = x0 + rL_front, xs1_scoop = x1 - rR_front;
+    var rL = (isLeftOuter && isBackOuter) ? rOuter : rInner;
+    var rR = (isRightOuter && isBackOuter) ? rOuter : rInner;
 
-    if (cCell.scoopR > 1e-6 && xs1_scoop > xs0_scoop) {
-      var rs = cCell.scoopR, sec = [[y0, d.FLOOR]];
-      sec.push([y0 + rs, d.FLOOR]);
-      for (var k = 0; k <= ni; k++) {                 // quarter arc, clockwise
-        var a2 = -Math.PI / 2 - (Math.PI / 2) * k / ni;
-        sec.push([y0 + rs + rs * Math.cos(a2), d.FLOOR + rs + rs * Math.sin(a2)]);
+    function xLeft(y) {
+      if (rL > 1e-6 && y >= yb - rL) {
+        var dy = y - (yb - rL);
+        return (x0 + rL) - Math.sqrt(Math.max(0, rL * rL - dy * dy));
       }
-      addPrismX(m, sec, xs0_scoop, xs1_scoop);
+      return x0;
     }
 
-    // Back corners (for label tab)
-    var rL_back = (isLeftOuter && isBackOuter) ? rOuter : rInner;
-    var rR_back = (isRightOuter && isBackOuter) ? rOuter : rInner;
-    var xs0_label = x0 + rL_back, xs1_label = x1 - rR_back;
-    var maxLw = xs1_label - xs0_label;
-
-    if (cCell.labelD > 1e-6 && maxLw > 0) {
-      var ld = cCell.labelD, tb = d.H_BODY;
-      var tabX0 = xs0_label, tabX1 = xs1_label;
-      if (cCell.labelW > 0 && cCell.labelW < maxLw) {
-        var midX = (xs0_label + xs1_label) / 2;
-        tabX0 = midX - cCell.labelW / 2;
-        tabX1 = midX + cCell.labelW / 2;
+    function xRight(y) {
+      if (rR > 1e-6 && y >= yb - rR) {
+        var dy = y - (yb - rR);
+        return (x1 - rR) + Math.sqrt(Math.max(0, rR * rR - dy * dy));
       }
-      addPrismX(m, [[yb, tb], [yb - ld, tb], [yb, tb - ld]], tabX0, tabX1);
+      return x1;
     }
+
+    var maxFullW = (x1 - rR) - (x0 + rL);
+    var isCustom = cCell.labelW > 0 && cCell.labelW < maxFullW;
+    var customW = Math.min(cCell.labelW, maxFullW);
+    var midX = (x0 + rL + x1 - rR) / 2;
+
+    var N = Math.max(6, ni || 8);
+    var ptsUnder = [];
+
+    for (var k = 0; k <= N; k++) {
+      var u = k / N;
+      var y = yb - ld * (1 - u);
+      var z = tb - ld * (1 - u);
+      var xl = isCustom ? (midX - customW / 2) : xLeft(y);
+      var xr = isCustom ? (midX + customW / 2) : xRight(y);
+      if (xr < xl) { xl = midX; xr = midX; }
+      ptsUnder.push([xl, xr, y, z]);
+    }
+
+    // 1. Underside 45-degree sloping face
+    var nUnderside = [0, -1 / Math.SQRT2, -1 / Math.SQRT2];
+    for (var i = 0; i < N; i++) {
+      var p0 = ptsUnder[i], p1 = ptsUnder[i + 1];
+      var v0L = [p0[0], p0[2], p0[3]], v0R = [p0[1], p0[2], p0[3]];
+      var v1L = [p1[0], p1[2], p1[3]], v1R = [p1[1], p1[2], p1[3]];
+      m.tri(v0L, v1L, v0R, nUnderside, nUnderside, nUnderside);
+      m.tri(v0R, v1L, v1R, nUnderside, nUnderside, nUnderside);
+    }
+
+    // 2. Top horizontal face at z = tb
+    var topPoly = [];
+    var pTop = ptsUnder[N]; // front edge at z = tb
+    topPoly.push([pTop[1], pTop[2]]); // front-right
+
+    if (isCustom) {
+      topPoly.push([pTop[1], yb]);
+      topPoly.push([pTop[0], yb]);
+    } else {
+      // Right corner arc to yb
+      for (var k2 = N; k2 >= 0; k2--) {
+        var yr = ptsUnder[k2][2], xr2 = ptsUnder[k2][1];
+        if (Math.hypot(xr2 - topPoly[topPoly.length - 1][0], yr - topPoly[topPoly.length - 1][1]) > 1e-4) {
+          topPoly.push([xr2, yr]);
+        }
+      }
+      // Left corner arc from yb forward to front-left
+      for (var k3 = 0; k3 <= N; k3++) {
+        var yl = ptsUnder[k3][2], xl2 = ptsUnder[k3][0];
+        if (Math.hypot(xl2 - topPoly[topPoly.length - 1][0], yl - topPoly[topPoly.length - 1][1]) > 1e-4) {
+          topPoly.push([xl2, yl]);
+        }
+      }
+    }
+    topPoly.push([pTop[0], pTop[2]]); // front-left
+
+    var polyClean = dedupeLoop(topPoly, 1e-4);
+    if (polyClean.length >= 3) {
+      if (signedArea(polyClean) < 0) polyClean = reverseLoop(polyClean);
+      var t = triangulate(polyClean, []);
+      var nTop = [0, 0, 1];
+      for (var tr = 0; tr < t.tris.length; tr++) {
+        var iA = t.tris[tr][0], iB = t.tris[tr][1], iC = t.tris[tr][2];
+        m.tri([t.pts[iA][0], t.pts[iA][1], tb],
+              [t.pts[iB][0], t.pts[iB][1], tb],
+              [t.pts[iC][0], t.pts[iC][1], tb],
+              nTop, nTop, nTop);
+      }
+    }
+
+    // 3. Side end caps for custom width
+    if (isCustom) {
+      var pBot = ptsUnder[0];
+      var nLeft = [-1, 0, 0], nRight = [1, 0, 0];
+      m.tri([pTop[0], pTop[2], tb], [pBot[0], yb, pBot[3]], [pTop[0], yb, tb], nLeft, nLeft, nLeft);
+      m.tri([pTop[1], pTop[2], tb], [pTop[1], yb, tb], [pBot[1], yb, pBot[3]], nRight, nRight, nRight);
+    }
+  }
+
+  function addSeamlessFingerScoop(cCell) {
+    var rs = cCell.scoopR;
+    if (rs <= 1e-6) return;
+
+    var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
+    var y0 = cCell.cy - cCell.cd / 2;
+
+    var isLeftOuter  = Math.abs(x0 - (-d.IW / 2)) < 1e-3;
+    var isRightOuter = Math.abs(x1 - (d.IW / 2)) < 1e-3;
+    var isFrontOuter = Math.abs(y0 - (-d.ID / 2)) < 1e-3;
+
+    var rOuter = Math.max(0, R_TOP - P.wall);
+    var rInner = Math.max(0, cCell.fillet || 0);
+
+    var rL = (isLeftOuter && isFrontOuter) ? rOuter : rInner;
+    var rR = (isRightOuter && isFrontOuter) ? rOuter : rInner;
+
+    function xLeft(y) {
+      if (rL > 1e-6 && y <= y0 + rL) {
+        var dy = (y0 + rL) - y;
+        return (x0 + rL) - Math.sqrt(Math.max(0, rL * rL - dy * dy));
+      }
+      return x0;
+    }
+
+    function xRight(y) {
+      if (rR > 1e-6 && y <= y0 + rR) {
+        var dy = (y0 + rR) - y;
+        return (x1 - rR) + Math.sqrt(Math.max(0, rR * rR - dy * dy));
+      }
+      return x1;
+    }
+
+    var N = Math.max(8, ni || 8);
+    var ptsScoop = [];
+
+    for (var k = 0; k <= N; k++) {
+      var phi = (Math.PI / 2) * k / N;
+      var y = y0 + rs * (1 - Math.cos(phi));
+      var z = d.FLOOR + rs * (1 - Math.sin(phi));
+      var xl = xLeft(y);
+      var xr = xRight(y);
+      if (xr < xl) { xl = (x0 + x1) / 2; xr = (x0 + x1) / 2; }
+      var ny = Math.cos(phi), nz = Math.sin(phi);
+      ptsScoop.push([xl, xr, y, z, 0, ny, nz]);
+    }
+
+    // 1. Curved scoop face
+    for (var i = 0; i < N; i++) {
+      var p0 = ptsScoop[i], p1 = ptsScoop[i + 1];
+      var v0L = [p0[0], p0[2], p0[3]], v0R = [p0[1], p0[2], p0[3]];
+      var v1L = [p1[0], p1[2], p1[3]], v1R = [p1[1], p1[2], p1[3]];
+      var n0 = [0, p0[5], p0[6]], n1 = [0, p1[5], p1[6]];
+      m.tri(v0L, v0R, v1L, n0, n0, n1);
+      m.tri(v0R, v1R, v1L, n0, n1, n1);
+    }
+  }
+
+  for (var cIdx2 = 0; cIdx2 < d.cells.length; cIdx2++) {
+    addSeamlessFingerScoop(d.cells[cIdx2]);
+    addSeamlessLabelTab(d.cells[cIdx2]);
     yield ++sliced / slices;
   }
 

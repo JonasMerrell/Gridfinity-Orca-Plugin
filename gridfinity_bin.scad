@@ -168,47 +168,44 @@ module single_compartment(cx, cy, cw, cd) {
 
 // Concave finger ramp at the -Y wall of a compartment.
 module single_scoop(cx, cy, cw, cd) {
-    is_left_outer  = abs((cx - cw / 2) - (-IW / 2)) < 0.01;
-    is_right_outer = abs((cx + cw / 2) - (IW / 2)) < 0.01;
-    is_front_outer = abs((cy - cd / 2) - (-ID / 2)) < 0.01;
-
-    rL = (is_left_outer && is_front_outer) ? max(0, R_TOP - wall) : min(inner_fillet, cw / 2 - eps);
-    rR = (is_right_outer && is_front_outer) ? max(0, R_TOP - wall) : min(inner_fillet, cw / 2 - eps);
-
     f = min(inner_fillet, cw / 2 - eps, cd / 2 - eps);
     rs = min(scoop_radius, cd - 2 * f, H_BODY - FLOOR);
-    sw = cw - rL - rR;
-    scx = cx - cw / 2 + rL + sw / 2;
-    if (rs > 0 && sw > 0)
-        translate([scx - sw / 2, cy - cd / 2, FLOOR])
-        difference() {
-            cube([sw, rs, rs]);
-            translate([-eps, rs, rs]) rotate([0, 90, 0])
-                cylinder(r = rs, h = sw + 2 * eps);
+    if (rs > 0)
+        intersection() {
+            single_compartment(cx, cy, cw, cd);
+            translate([cx - cw / 2 - eps, cy - cd / 2 - eps, FLOOR])
+                difference() {
+                    cube([cw + 2 * eps, rs + eps, rs + eps]);
+                    translate([-eps, rs + eps, rs]) rotate([0, 90, 0])
+                        cylinder(r = rs, h = cw + 4 * eps);
+                }
         }
 }
 
 // Label ledge at the +Y wall, 45 deg underside so it prints unsupported.
 module single_label(cx, cy, cw, cd) {
-    is_left_outer  = abs((cx - cw / 2) - (-IW / 2)) < 0.01;
-    is_right_outer = abs((cx + cw / 2) - (IW / 2)) < 0.01;
-    is_back_outer  = abs((cy + cd / 2) - (ID / 2)) < 0.01;
-
-    rL = (is_left_outer && is_back_outer) ? max(0, R_TOP - wall) : min(inner_fillet, cw / 2 - eps);
-    rR = (is_right_outer && is_back_outer) ? max(0, R_TOP - wall) : min(inner_fillet, cw / 2 - eps);
-
     ld = min(label_depth, cd - 1, H_BODY - FLOOR);
-    max_lw = cw - rL - rR;
-    lw = (label_width > 0 && label_width < max_lw) ? label_width : max_lw;
-    lcx = cx - cw / 2 + rL + max_lw / 2;
     yb = cy + cd / 2;
-    if (ld > 0 && lw > 0)
-        translate([lcx, 0, 0])
-        hull() {
-            translate([-lw / 2, yb - ld, H_BODY - eps])
-                cube([lw, ld, eps + LIP_H]);
-            translate([-lw / 2, yb - eps, H_BODY - ld])
-                cube([lw, eps, eps]);
+    if (ld > 0)
+        intersection() {
+            single_compartment(cx, cy, cw, cd);
+            if (label_width > 0 && label_width < cw) {
+                translate([cx, 0, 0])
+                hull() {
+                    translate([-label_width / 2, yb - ld, H_BODY - eps])
+                        cube([label_width, ld, eps + LIP_H]);
+                    translate([-label_width / 2, yb - eps, H_BODY - ld])
+                        cube([label_width, eps, eps]);
+                }
+            } else {
+                translate([cx - cw / 2 - eps, 0, 0])
+                hull() {
+                    translate([0, yb - ld, H_BODY - eps])
+                        cube([cw + 2 * eps, ld, eps + LIP_H]);
+                    translate([0, yb - eps, H_BODY - ld])
+                        cube([cw + 2 * eps, eps, eps]);
+                }
+            }
         }
 }
 
