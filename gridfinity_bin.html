@@ -1490,7 +1490,7 @@ function* binSteps(P, seg) {
     var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
     var yb = cCell.cy + cCell.cd / 2, tb = d.H_BODY;
 
-    var r_corner = Math.max(0, cCell.r_in || 0);
+    var r_corner = Math.max(0, (cCell.r_in || 0) * 0.75);
     var rL = r_corner;
     var rR = r_corner;
 
@@ -1585,7 +1585,7 @@ function* binSteps(P, seg) {
     var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
     var y0 = cCell.cy - cCell.cd / 2;
 
-    var r_corner = Math.max(0, cCell.r_in || 0);
+    var r_corner = Math.max(0, (cCell.r_in || 0) * 0.75);
     var rL = r_corner;
     var rR = r_corner;
 

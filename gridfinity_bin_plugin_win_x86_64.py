@@ -6,7 +6,7 @@
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.5"
+# version = "1.5.6"
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
@@ -1899,7 +1899,7 @@ function* binSteps(P, seg) {
     var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
     var yb = cCell.cy + cCell.cd / 2, tb = d.H_BODY;
 
-    var r_corner = Math.max(0, cCell.r_in || 0);
+    var r_corner = Math.max(0, (cCell.r_in || 0) * 0.75);
     var rL = r_corner;
     var rR = r_corner;
 
@@ -1994,7 +1994,7 @@ function* binSteps(P, seg) {
     var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
     var y0 = cCell.cy - cCell.cd / 2;
 
-    var r_corner = Math.max(0, cCell.r_in || 0);
+    var r_corner = Math.max(0, (cCell.r_in || 0) * 0.75);
     var rL = r_corner;
     var rR = r_corner;
 
