@@ -6,7 +6,7 @@
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.2"
+# version = "1.5.3"
 # ///
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
