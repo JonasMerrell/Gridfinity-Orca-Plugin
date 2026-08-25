@@ -1535,7 +1535,7 @@ function* binSteps(P, seg) {
       ptsUnder.push([xl, xr, y, z]);
     }
 
-    // 1. Underside 45-degree sloping face
+    // 1. Underside 45-degree sloping face (facing -y, -z into the compartment)
     var nUnderside = [0, -1 / Math.SQRT2, -1 / Math.SQRT2];
     for (var i = 0; i < N; i++) {
       var p0 = ptsUnder[i], p1 = ptsUnder[i + 1];
@@ -1545,48 +1545,43 @@ function* binSteps(P, seg) {
       m.tri(v0R, v1R, v1L, nUnderside, nUnderside, nUnderside);
     }
 
-    // 2. Top horizontal face at z = tb
+    // 2. Top horizontal face at z = tb (facing +z)
     var nTop = [0, 0, 1];
-    var pTop = ptsUnder[N]; // front edge at z = tb (y = yb - ld)
-    var xL_top = pTop[0], xR_top = pTop[1];
-
-    if (isCustom) {
-      // Rectangle top face for custom width
-      m.tri([xL_top, yb - ld, tb], [xR_top, yb - ld, tb], [xR_top, yb, tb], nTop, nTop, nTop);
-      m.tri([xL_top, yb - ld, tb], [xR_top, yb, tb], [xL_top, yb, tb], nTop, nTop, nTop);
-
-      // 3. Side end caps for custom width
-      var pBot = ptsUnder[0]; // back-bottom at z = tb - ld (y = yb)
-      var nLeft = [-1, 0, 0], nRight = [1, 0, 0];
-      m.tri([xL_top, yb - ld, tb], [xL_top, yb, pBot[3]], [xL_top, yb, tb], nLeft, nLeft, nLeft);
-      m.tri([xR_top, yb - ld, tb], [xR_top, yb, tb], [xR_top, yb, pBot[3]], nRight, nRight, nRight);
-    } else {
-      // Full width with corner curves
-      var topPoly = [];
-      topPoly.push([xR_top, yb - ld]); // front-right
-      for (var k2 = 0; k2 <= N; k2++) {
-        var yr = yb - ld * (1 - k2 / N);
-        var xr2 = xRight(yr);
-        topPoly.push([xr2, yr]);
-      }
-      for (var k3 = N; k3 >= 0; k3--) {
-        var yl = yb - ld * (1 - k3 / N);
-        var xl2 = xLeft(yl);
-        topPoly.push([xl2, yl]);
-      }
-      var polyClean = dedupeLoop(topPoly, 1e-4);
-      if (polyClean.length >= 3) {
-        if (signedArea(polyClean) < 0) polyClean = reverseLoop(polyClean);
-        var t = triangulate(polyClean, []);
-        for (var tr = 0; tr < t.tris.length; tr++) {
-          var iA = t.tris[tr][0], iB = t.tris[tr][1], iC = t.tris[tr][2];
-          m.tri([t.pts[iA][0], t.pts[iA][1], tb],
-                [t.pts[iB][0], t.pts[iB][1], tb],
-                [t.pts[iC][0], t.pts[iC][1], tb],
-                nTop, nTop, nTop);
-        }
-      }
+    for (var i2 = 0; i2 < N; i2++) {
+      var p0_t = ptsUnder[i2], p1_t = ptsUnder[i2 + 1];
+      var t0L = [p0_t[0], p0_t[2], tb], t0R = [p0_t[1], p0_t[2], tb];
+      var t1L = [p1_t[0], p1_t[2], tb], t1R = [p1_t[1], p1_t[2], tb];
+      m.tri(t0L, t1L, t0R, nTop, nTop, nTop);
+      m.tri(t0R, t1L, t1R, nTop, nTop, nTop);
     }
+
+    // 3. Left side wall (facing -x)
+    var nLeft = [-1, 0, 0];
+    for (var i3 = 0; i3 < N; i3++) {
+      var p0_l = ptsUnder[i3], p1_l = ptsUnder[i3 + 1];
+      var v0L_l = [p0_l[0], p0_l[2], p0_l[3]], v1L_l = [p1_l[0], p1_l[2], p1_l[3]];
+      var t0L_l = [p0_l[0], p0_l[2], tb],      t1L_l = [p1_l[0], p1_l[2], tb];
+      m.tri(t0L_l, v0L_l, t1L_l, nLeft, nLeft, nLeft);
+      m.tri(t1L_l, v0L_l, v1L_l, nLeft, nLeft, nLeft);
+    }
+
+    // 4. Right side wall (facing +x)
+    var nRight = [1, 0, 0];
+    for (var i4 = 0; i4 < N; i4++) {
+      var p0_r = ptsUnder[i4], p1_r = ptsUnder[i4 + 1];
+      var v0R_r = [p0_r[1], p0_r[2], p0_r[3]], v1R_r = [p1_r[1], p1_r[2], p1_r[3]];
+      var t0R_r = [p0_r[1], p0_r[2], tb],      t1R_r = [p1_r[1], p1_r[2], tb];
+      m.tri(t0R_r, t1R_r, v0R_r, nRight, nRight, nRight);
+      m.tri(t1R_r, v1R_r, v0R_r, nRight, nRight, nRight);
+    }
+
+    // 5. Back vertical face at k = 0 (y = yb, from z = tb - ld to tb, facing +y)
+    var pBot = ptsUnder[0]; // at u = 0, y = yb, z = tb - ld
+    var nBack = [0, 1, 0];
+    var b0L = [pBot[0], yb, pBot[3]], b0R = [pBot[1], yb, pBot[3]];
+    var top0L = [pBot[0], yb, tb],    top0R = [pBot[1], yb, tb];
+    m.tri(top0L, top0R, b0L, nBack, nBack, nBack);
+    m.tri(top0R, b0R, b0L, nBack, nBack, nBack);
   }
 
   function addSeamlessFingerScoop(cCell) {
@@ -1636,7 +1631,7 @@ function* binSteps(P, seg) {
       ptsScoop.push([xl, xr, y, z, 0, ny, nz]);
     }
 
-    // 1. Curved scoop face
+    // 1. Curved scoop face (facing +y, +z into the compartment)
     for (var i = 0; i < N; i++) {
       var p0 = ptsScoop[i], p1 = ptsScoop[i + 1];
       var v0L = [p0[0], p0[2], p0[3]], v0R = [p0[1], p0[2], p0[3]];
@@ -1645,6 +1640,44 @@ function* binSteps(P, seg) {
       m.tri(v0L, v0R, v1L, n0, n0, n1);
       m.tri(v0R, v1R, v1L, n0, n1, n1);
     }
+
+    // 2. Bottom horizontal face at z = d.FLOOR (facing -z)
+    var nBot = [0, 0, -1];
+    for (var i2 = 0; i2 < N; i2++) {
+      var p0_b = ptsScoop[i2], p1_b = ptsScoop[i2 + 1];
+      var b0L = [p0_b[0], p0_b[2], d.FLOOR], b0R = [p0_b[1], p0_b[2], d.FLOOR];
+      var b1L = [p1_b[0], p1_b[2], d.FLOOR], b1R = [p1_b[1], p1_b[2], d.FLOOR];
+      m.tri(b0L, b1L, b0R, nBot, nBot, nBot);
+      m.tri(b0R, b1L, b1R, nBot, nBot, nBot);
+    }
+
+    // 3. Left side wall (facing -x)
+    var nLeft = [-1, 0, 0];
+    for (var i3 = 0; i3 < N; i3++) {
+      var p0_l = ptsScoop[i3], p1_l = ptsScoop[i3 + 1];
+      var v0L_s = [p0_l[0], p0_l[2], p0_l[3]], v1L_s = [p1_l[0], p1_l[2], p1_l[3]];
+      var b0L_s = [p0_l[0], p0_l[2], d.FLOOR], b1L_s = [p1_l[0], p1_l[2], d.FLOOR];
+      m.tri(v0L_s, v1L_s, b0L_s, nLeft, nLeft, nLeft);
+      m.tri(v1L_s, b1L_s, b0L_s, nLeft, nLeft, nLeft);
+    }
+
+    // 4. Right side wall (facing +x)
+    var nRight = [1, 0, 0];
+    for (var i4 = 0; i4 < N; i4++) {
+      var p0_r = ptsScoop[i4], p1_r = ptsScoop[i4 + 1];
+      var v0R_s = [p0_r[1], p0_r[2], p0_r[3]], v1R_s = [p1_r[1], p1_r[2], p1_r[3]];
+      var b0R_s = [p0_r[1], p0_r[2], d.FLOOR], b1R_s = [p1_r[1], p1_r[2], d.FLOOR];
+      m.tri(v0R_s, b0R_s, v1R_s, nRight, nRight, nRight);
+      m.tri(v1R_s, b0R_s, b1R_s, nRight, nRight, nRight);
+    }
+
+    // 5. Front vertical face at k = 0 (y = y0, from z = d.FLOOR to d.FLOOR + rs, facing -y)
+    var pTop = ptsScoop[0]; // at phi = 0, y = y0, z = d.FLOOR + rs
+    var nFront = [0, -1, 0];
+    var vTopL = [pTop[0], y0, pTop[3]],  vTopR = [pTop[1], y0, pTop[3]];
+    var bTopL = [pTop[0], y0, d.FLOOR],  bTopR = [pTop[1], y0, d.FLOOR];
+    m.tri(vTopL, bTopL, vTopR, nFront, nFront, nFront);
+    m.tri(vTopR, bTopL, bTopR, nFront, nFront, nFront);
   }
 
   for (var cIdx2 = 0; cIdx2 < d.cells.length; cIdx2++) {
