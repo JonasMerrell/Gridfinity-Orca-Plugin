@@ -1926,17 +1926,18 @@ function* binSteps(P, seg) {
       return x1;
     }
 
-    var maxFullW = (x1 - rR) - (x0 + rL);
-    var isCustom = cCell.labelW > 0 && cCell.labelW < maxFullW;
-    var customW = Math.min(cCell.labelW, maxFullW);
+    var fullW = (x1 - rR) - (x0 + rL);
+    var isCustom = cCell.labelW > 0 && cCell.labelW < fullW;
+    var customW = Math.min(cCell.labelW, fullW);
     var midX = (x0 + rL + x1 - rR) / 2;
 
     var N = Math.max(6, ni || 8);
     var ptsUnder = [];
 
+    // u from 0 (bottom-back) to 1 (top-front)
     for (var k = 0; k <= N; k++) {
       var u = k / N;
-      var y = yb - ld * (1 - u);
+      var y = yb - ld * u;
       var z = tb - ld * (1 - u);
       var xl = isCustom ? (midX - customW / 2) : xLeft(y);
       var xr = isCustom ? (midX + customW / 2) : xRight(y);
@@ -1950,56 +1951,51 @@ function* binSteps(P, seg) {
       var p0 = ptsUnder[i], p1 = ptsUnder[i + 1];
       var v0L = [p0[0], p0[2], p0[3]], v0R = [p0[1], p0[2], p0[3]];
       var v1L = [p1[0], p1[2], p1[3]], v1R = [p1[1], p1[2], p1[3]];
-      m.tri(v0L, v1L, v0R, nUnderside, nUnderside, nUnderside);
-      m.tri(v0R, v1L, v1R, nUnderside, nUnderside, nUnderside);
+      m.tri(v0L, v0R, v1L, nUnderside, nUnderside, nUnderside);
+      m.tri(v0R, v1R, v1L, nUnderside, nUnderside, nUnderside);
     }
 
     // 2. Top horizontal face at z = tb
-    var topPoly = [];
-    var pTop = ptsUnder[N]; // front edge at z = tb
-    topPoly.push([pTop[1], pTop[2]]); // front-right
+    var nTop = [0, 0, 1];
+    var pTop = ptsUnder[N]; // front edge at z = tb (y = yb - ld)
+    var xL_top = pTop[0], xR_top = pTop[1];
 
     if (isCustom) {
-      topPoly.push([pTop[1], yb]);
-      topPoly.push([pTop[0], yb]);
-    } else {
-      // Right corner arc to yb
-      for (var k2 = N; k2 >= 0; k2--) {
-        var yr = ptsUnder[k2][2], xr2 = ptsUnder[k2][1];
-        if (Math.hypot(xr2 - topPoly[topPoly.length - 1][0], yr - topPoly[topPoly.length - 1][1]) > 1e-4) {
-          topPoly.push([xr2, yr]);
-        }
-      }
-      // Left corner arc from yb forward to front-left
-      for (var k3 = 0; k3 <= N; k3++) {
-        var yl = ptsUnder[k3][2], xl2 = ptsUnder[k3][0];
-        if (Math.hypot(xl2 - topPoly[topPoly.length - 1][0], yl - topPoly[topPoly.length - 1][1]) > 1e-4) {
-          topPoly.push([xl2, yl]);
-        }
-      }
-    }
-    topPoly.push([pTop[0], pTop[2]]); // front-left
+      // Rectangle top face for custom width
+      m.tri([xL_top, yb - ld, tb], [xR_top, yb - ld, tb], [xR_top, yb, tb], nTop, nTop, nTop);
+      m.tri([xL_top, yb - ld, tb], [xR_top, yb, tb], [xL_top, yb, tb], nTop, nTop, nTop);
 
-    var polyClean = dedupeLoop(topPoly, 1e-4);
-    if (polyClean.length >= 3) {
-      if (signedArea(polyClean) < 0) polyClean = reverseLoop(polyClean);
-      var t = triangulate(polyClean, []);
-      var nTop = [0, 0, 1];
-      for (var tr = 0; tr < t.tris.length; tr++) {
-        var iA = t.tris[tr][0], iB = t.tris[tr][1], iC = t.tris[tr][2];
-        m.tri([t.pts[iA][0], t.pts[iA][1], tb],
-              [t.pts[iB][0], t.pts[iB][1], tb],
-              [t.pts[iC][0], t.pts[iC][1], tb],
-              nTop, nTop, nTop);
-      }
-    }
-
-    // 3. Side end caps for custom width
-    if (isCustom) {
-      var pBot = ptsUnder[0];
+      // 3. Side end caps for custom width
+      var pBot = ptsUnder[0]; // back-bottom at z = tb - ld (y = yb)
       var nLeft = [-1, 0, 0], nRight = [1, 0, 0];
-      m.tri([pTop[0], pTop[2], tb], [pBot[0], yb, pBot[3]], [pTop[0], yb, tb], nLeft, nLeft, nLeft);
-      m.tri([pTop[1], pTop[2], tb], [pTop[1], yb, tb], [pBot[1], yb, pBot[3]], nRight, nRight, nRight);
+      m.tri([xL_top, yb - ld, tb], [xL_top, yb, pBot[3]], [xL_top, yb, tb], nLeft, nLeft, nLeft);
+      m.tri([xR_top, yb - ld, tb], [xR_top, yb, tb], [xR_top, yb, pBot[3]], nRight, nRight, nRight);
+    } else {
+      // Full width with corner curves
+      var topPoly = [];
+      topPoly.push([xR_top, yb - ld]); // front-right
+      for (var k2 = 0; k2 <= N; k2++) {
+        var yr = yb - ld * (1 - k2 / N);
+        var xr2 = xRight(yr);
+        topPoly.push([xr2, yr]);
+      }
+      for (var k3 = N; k3 >= 0; k3--) {
+        var yl = yb - ld * (1 - k3 / N);
+        var xl2 = xLeft(yl);
+        topPoly.push([xl2, yl]);
+      }
+      var polyClean = dedupeLoop(topPoly, 1e-4);
+      if (polyClean.length >= 3) {
+        if (signedArea(polyClean) < 0) polyClean = reverseLoop(polyClean);
+        var t = triangulate(polyClean, []);
+        for (var tr = 0; tr < t.tris.length; tr++) {
+          var iA = t.tris[tr][0], iB = t.tris[tr][1], iC = t.tris[tr][2];
+          m.tri([t.pts[iA][0], t.pts[iA][1], tb],
+                [t.pts[iB][0], t.pts[iB][1], tb],
+                [t.pts[iC][0], t.pts[iC][1], tb],
+                nTop, nTop, nTop);
+        }
+      }
     }
   }
 
@@ -2627,6 +2623,10 @@ function readControls() {
   if (scoopOpts) scoopOpts.hidden = !P.scoop;
   var labelOpts = document.getElementById("labelOpts");
   if (labelOpts) labelOpts.hidden = !P.label;
+
+  P.scoopR = getVal("scoopR", "scoopR_num", 50, 0.5);
+  P.labelD = getVal("labelD", "labelD_num", 50, 1);
+  P.labelW = getVal("labelW", "labelW_num", 500, 0);
 
   FLOATS.forEach(function (k) {
     var el = document.getElementById(k);
