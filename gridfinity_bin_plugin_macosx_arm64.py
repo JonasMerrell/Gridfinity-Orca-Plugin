@@ -716,7 +716,27 @@ canvas.dragging { cursor:grabbing; }
       <h2>Features</h2>
       <label class="check"><input type="checkbox" id="lip" checked> Stacking lip</label>
       <label class="check"><input type="checkbox" id="scoop" checked> Finger scoop</label>
+      <div id="scoopOpts" style="margin-left:24px; margin-top:2px; margin-bottom:8px">
+        <div class="row" style="margin-bottom:6px">
+          <label for="scoopR">Radius (mm)</label>
+          <input type="range" id="scoopR" min="1" max="25" step="0.5" value="6">
+          <input type="number" id="scoopR_num" min="0.5" max="50" step="0.5" value="6">
+        </div>
+      </div>
       <label class="check"><input type="checkbox" id="label"> Label tab</label>
+      <div id="labelOpts" hidden style="margin-left:24px; margin-top:2px; margin-bottom:8px">
+        <div class="row" style="margin-bottom:6px">
+          <label for="labelD">Depth (mm)</label>
+          <input type="range" id="labelD" min="2" max="30" step="0.5" value="12">
+          <input type="number" id="labelD_num" min="1" max="50" step="0.5" value="12">
+        </div>
+        <div class="row" style="margin-bottom:4px">
+          <label for="labelW">Width (mm)</label>
+          <input type="range" id="labelW" min="0" max="150" step="1" value="0">
+          <input type="number" id="labelW_num" min="0" max="500" step="1" value="0">
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-bottom:4px">0 = Full compartment width</div>
+      </div>
       <label class="check"><input type="checkbox" id="mag"> Magnet holes (6&times;2&nbsp;mm)</label>
       <label class="check"><input type="checkbox" id="screw"> Screw holes (M3)</label>
     </section>
@@ -725,8 +745,6 @@ canvas.dragging { cursor:grabbing; }
       <summary>Advanced</summary>
       <div class="num"><label for="wall">Wall (mm)</label><input type="number" id="wall" min="0.4" max="5" step="0.1" value="1.2"></div>
       <div class="num"><label for="floorT">Floor (mm)</label><input type="number" id="floorT" min="0.4" max="10" step="0.1" value="1.4"></div>
-      <div class="num"><label for="scoopR">Scoop radius</label><input type="number" id="scoopR" min="0" max="30" step="0.5" value="6"></div>
-      <div class="num"><label for="labelD">Label depth</label><input type="number" id="labelD" min="0" max="40" step="0.5" value="12"></div>
       <div class="num"><label for="fillet">Inner fillet</label><input type="number" id="fillet" min="0" max="5" step="0.1" value="0.8"></div>
     </details>
 
@@ -802,7 +820,7 @@ var DEFAULTS = {
   gx: 2, gy: 1, gz: 6, dx: 2, dy: 1,
   comp_layout: "grid", num_rows: 2, row_divs: [2, 1], num_cols: 2, col_divs: [2, 1],
   lip: true, scoop: true, label: false, mag: false, screw: false,
-  wall: 1.2, floorT: 1.4, scoopR: 6, labelD: 12, fillet: 0.8
+  wall: 1.2, floorT: 1.4, scoopR: 6, labelD: 12, labelW: 0, fillet: 0.8
 };
 
 function derive(p) {
@@ -816,6 +834,7 @@ function derive(p) {
   var fillet = Math.max(0, Math.min(p.fillet, depth));
   var cells = [];
   var valid = depth > 0.2 && IW > 0.2 && ID > 0.2;
+  var labelW = p.label ? Math.max(0, p.labelW || 0) : 0;
 
   if (p.comp_layout === "rows") {
     var nr = Math.max(1, p.num_rows || 1);
@@ -836,7 +855,7 @@ function derive(p) {
         cells.push({
           cx: cx, cy: cy, cw: rCW, cd: rowCD,
           r_in: r_in, fillet: rFillet,
-          scoopR: scoopR, labelD: labelD
+          scoopR: scoopR, labelD: labelD, labelW: labelW
         });
       }
     }
@@ -859,7 +878,7 @@ function derive(p) {
         cells.push({
           cx: cx, cy: cy, cw: colCW, cd: cCD,
           r_in: r_in, fillet: rFillet,
-          scoopR: scoopR, labelD: labelD
+          scoopR: scoopR, labelD: labelD, labelW: labelW
         });
       }
     }
@@ -883,7 +902,7 @@ function derive(p) {
           cy: (j - (dy - 1) / 2) * pitchY,
           cw: CW, cd: CD,
           r_in: r_in, fillet: rFillet,
-          scoopR: scoopR, labelD: labelD
+          scoopR: scoopR, labelD: labelD, labelW: labelW
         });
       }
     }
@@ -1906,10 +1925,17 @@ function* binSteps(P, seg) {
     var rL_back = (isLeftOuter && isBackOuter) ? rOuter : rInner;
     var rR_back = (isRightOuter && isBackOuter) ? rOuter : rInner;
     var xs0_label = x0 + rL_back, xs1_label = x1 - rR_back;
+    var maxLw = xs1_label - xs0_label;
 
-    if (cCell.labelD > 1e-6 && xs1_label > xs0_label) {
+    if (cCell.labelD > 1e-6 && maxLw > 0) {
       var ld = cCell.labelD, tb = d.H_BODY;
-      addPrismX(m, [[yb, tb], [yb - ld, tb], [yb, tb - ld]], xs0_label, xs1_label);
+      var tabX0 = xs0_label, tabX1 = xs1_label;
+      if (cCell.labelW > 0 && cCell.labelW < maxLw) {
+        var midX = (xs0_label + xs1_label) / 2;
+        tabX0 = midX - cCell.labelW / 2;
+        tabX1 = midX + cCell.labelW / 2;
+      }
+      addPrismX(m, [[yb, tb], [yb - ld, tb], [yb, tb - ld]], tabX0, tabX1);
     }
     yield ++sliced / slices;
   }
@@ -2206,10 +2232,11 @@ var P = Object.assign({}, DEFAULTS, {
   plateExact: false,
   buf_x_ratio: 50,
   buf_y_ratio: 50,
+  labelW: 0,
   plateBase: 0, plateR: 4,
   bedX: 250, bedY: 220, plateGap: 0, plateConnectors: true
 });
-var FLOATS = ["wall","floorT","scoopR","labelD","fillet","plateBase","plateR","bedX","bedY","plateGap"];
+var FLOATS = ["wall","floorT","scoopR","labelD","labelW","fillet","plateBase","plateR","bedX","bedY","plateGap"];
 var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors"];
 var lastTris = 0;
 
@@ -2469,6 +2496,11 @@ function readControls() {
     P.gy = P.plate_gy;
   }
 
+  var scoopOpts = document.getElementById("scoopOpts");
+  if (scoopOpts) scoopOpts.hidden = !P.scoop;
+  var labelOpts = document.getElementById("labelOpts");
+  if (labelOpts) labelOpts.hidden = !P.label;
+
   FLOATS.forEach(function (k) {
     var el = document.getElementById(k);
     if (el) {
@@ -2563,8 +2595,12 @@ function command() {
   }
   push("stacking_lip", P.lip); push("scoop", P.scoop); push("label_tab", P.label);
   push("magnet_holes", P.mag); push("screw_holes", P.screw);
-  var adv = { wall:"wall", floorT:"floor_thickness", scoopR:"scoop_radius",
-              labelD:"label_depth", fillet:"inner_fillet" };
+  if (P.scoop && P.scoopR !== DEFAULTS.scoopR) push("scoop_radius", P.scoopR);
+  if (P.label) {
+    if (P.labelD !== DEFAULTS.labelD) push("label_depth", P.labelD);
+    if (P.labelW && P.labelW > 0) push("label_width", P.labelW);
+  }
+  var adv = { wall:"wall", floorT:"floor_thickness", fillet:"inner_fillet" };
   for (var k in adv) if (P[k] !== DEFAULTS[k]) push(adv[k], P[k]);
   return "openscad " + args.join(" ") + " -o " + stem() + ".stl gridfinity_bin.scad";
 }
@@ -2621,7 +2657,10 @@ var SLIDERS = [
   { id: "plate_mm_x", num: "plate_mm_x_num", refit: true },
   { id: "plate_mm_y", num: "plate_mm_y_num", refit: true },
   { id: "buf_x_ratio", num: "buf_x_ratio_num", refit: true },
-  { id: "buf_y_ratio", num: "buf_y_ratio_num", refit: true }
+  { id: "buf_y_ratio", num: "buf_y_ratio_num", refit: true },
+  { id: "scoopR", num: "scoopR_num", refit: false },
+  { id: "labelD", num: "labelD_num", refit: false },
+  { id: "labelW", num: "labelW_num", refit: false }
 ];
 
 SLIDERS.forEach(function (s) {

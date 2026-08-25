@@ -31,6 +31,7 @@ wall            = 1.2;
 floor_thickness = 1.4;
 scoop_radius    = 6;
 label_depth     = 12;
+label_width     = 0;   // 0 = full compartment width
 inner_fillet    = 0.8;
 
 /* [Hidden] */
@@ -197,8 +198,9 @@ module single_label(cx, cy, cw, cd) {
     rR = (is_right_outer && is_back_outer) ? max(0, R_TOP - wall) : min(inner_fillet, cw / 2 - eps);
 
     ld = min(label_depth, cd - 1, H_BODY - FLOOR);
-    lw = cw - rL - rR;
-    lcx = cx - cw / 2 + rL + lw / 2;
+    max_lw = cw - rL - rR;
+    lw = (label_width > 0 && label_width < max_lw) ? label_width : max_lw;
+    lcx = cx - cw / 2 + rL + max_lw / 2;
     yb = cy + cd / 2;
     if (ld > 0 && lw > 0)
         translate([lcx, 0, 0])
