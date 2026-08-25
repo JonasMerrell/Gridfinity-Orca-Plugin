@@ -6,8 +6,7 @@
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.4"
-# ///
+# version = "1.5.5"
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
@@ -1900,15 +1899,9 @@ function* binSteps(P, seg) {
     var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
     var yb = cCell.cy + cCell.cd / 2, tb = d.H_BODY;
 
-    var isLeftOuter  = Math.abs(x0 - (-d.IW / 2)) < 1e-3;
-    var isRightOuter = Math.abs(x1 - (d.IW / 2)) < 1e-3;
-    var isBackOuter  = Math.abs(yb - (d.ID / 2)) < 1e-3;
-
-    var rOuter = Math.max(0, R_TOP - P.wall);
-    var rInner = Math.max(0, cCell.fillet || 0);
-
-    var rL = (isLeftOuter && isBackOuter) ? rOuter : rInner;
-    var rR = (isRightOuter && isBackOuter) ? rOuter : rInner;
+    var r_corner = Math.max(0, cCell.r_in || 0);
+    var rL = r_corner;
+    var rR = r_corner;
 
     function xLeft(y) {
       if (rL > 1e-6 && y >= yb - rL) {
@@ -2001,15 +1994,9 @@ function* binSteps(P, seg) {
     var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
     var y0 = cCell.cy - cCell.cd / 2;
 
-    var isLeftOuter  = Math.abs(x0 - (-d.IW / 2)) < 1e-3;
-    var isRightOuter = Math.abs(x1 - (d.IW / 2)) < 1e-3;
-    var isFrontOuter = Math.abs(y0 - (-d.ID / 2)) < 1e-3;
-
-    var rOuter = Math.max(0, R_TOP - P.wall);
-    var rInner = Math.max(0, cCell.fillet || 0);
-
-    var rL = (isLeftOuter && isFrontOuter) ? rOuter : rInner;
-    var rR = (isRightOuter && isFrontOuter) ? rOuter : rInner;
+    var r_corner = Math.max(0, cCell.r_in || 0);
+    var rL = r_corner;
+    var rR = r_corner;
 
     function xLeft(y) {
       if (rL > 1e-6 && y <= y0 + rL) {
