@@ -828,8 +828,8 @@ function derive(p) {
       var cy = (j - (nr - 1) / 2) * (rowCD + p.wall);
       var r_in = Math.max(0, Math.min(R_TOP - p.wall, rCW / 2 - 0.01, rowCD / 2 - 0.01));
       var rFillet = Math.max(0, Math.min(fillet, rCW / 2 - 0.01, rowCD / 2 - 0.01));
-      var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, rowCD - 2 * rFillet, depth)) : 0;
-      var labelD = p.label ? Math.max(0, Math.min(p.labelD, rowCD - 1, depth)) : 0;
+      var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, rowCD - 2 * rFillet, depth, p.label ? Math.max(0.5, rowCD - p.labelD - 1) : rowCD)) : 0;
+      var labelD = p.label ? Math.max(0, Math.min(p.labelD, rowCD - scoopR - 1, depth)) : 0;
 
       for (var i = 0; i < rCols; i++) {
         var cx = (i - (rCols - 1) / 2) * (rCW + p.wall);
@@ -851,8 +851,8 @@ function derive(p) {
       var cx = (i - (nc - 1) / 2) * (colCW + p.wall);
       var r_in = Math.max(0, Math.min(R_TOP - p.wall, colCW / 2 - 0.01, cCD / 2 - 0.01));
       var rFillet = Math.max(0, Math.min(fillet, colCW / 2 - 0.01, cCD / 2 - 0.01));
-      var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, cCD - 2 * rFillet, depth)) : 0;
-      var labelD = p.label ? Math.max(0, Math.min(p.labelD, cCD - 1, depth)) : 0;
+      var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, cCD - 2 * rFillet, depth, p.label ? Math.max(0.5, cCD - p.labelD - 1) : cCD)) : 0;
+      var labelD = p.label ? Math.max(0, Math.min(p.labelD, cCD - scoopR - 1, depth)) : 0;
 
       for (var j = 0; j < cRows; j++) {
         var cy = (j - (cRows - 1) / 2) * (cCD + p.wall);
@@ -872,8 +872,8 @@ function derive(p) {
     if (CW <= 0.2 || CD <= 0.2) valid = false;
     var r_in = Math.max(0, Math.min(R_TOP - p.wall, CW / 2 - 0.01, CD / 2 - 0.01));
     var rFillet = Math.max(0, Math.min(fillet, CW / 2 - 0.01, CD / 2 - 0.01));
-    var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, CD - 2 * rFillet, depth)) : 0;
-    var labelD = p.label ? Math.max(0, Math.min(p.labelD, CD - 1, depth)) : 0;
+    var scoopR = p.scoop ? Math.max(0, Math.min(p.scoopR, CD - 2 * rFillet, depth, p.label ? Math.max(0.5, CD - p.labelD - 1) : CD)) : 0;
+    var labelD = p.label ? Math.max(0, Math.min(p.labelD, CD - scoopR - 1, depth)) : 0;
     var pitchX = CW + p.wall, pitchY = CD + p.wall;
 
     for (var i = 0; i < dx; i++) {
@@ -1877,20 +1877,39 @@ function* binSteps(P, seg) {
   for (var cIdx2 = 0; cIdx2 < d.cells.length; cIdx2++) {
     var cCell = d.cells[cIdx2];
     var x0 = cCell.cx - cCell.cw / 2, x1 = cCell.cx + cCell.cw / 2;
+    var y0 = cCell.cy - cCell.cd / 2, yb = cCell.cy + cCell.cd / 2;
 
-    if (cCell.scoopR > 1e-6) {
-      var rs = cCell.scoopR, y0 = cCell.cy - cCell.cd / 2, sec = [[y0, d.FLOOR]];
+    var isLeftOuter  = Math.abs(x0 - (-d.IW / 2)) < 1e-3;
+    var isRightOuter = Math.abs(x1 - (d.IW / 2)) < 1e-3;
+    var isFrontOuter = Math.abs(y0 - (-d.ID / 2)) < 1e-3;
+    var isBackOuter  = Math.abs(yb - (d.ID / 2)) < 1e-3;
+
+    var rOuter = Math.max(0, R_TOP - P.wall);
+    var rInner = Math.max(0, cCell.fillet || 0);
+
+    // Front corners (for scoop)
+    var rL_front = (isLeftOuter && isFrontOuter) ? rOuter : rInner;
+    var rR_front = (isRightOuter && isFrontOuter) ? rOuter : rInner;
+    var xs0_scoop = x0 + rL_front, xs1_scoop = x1 - rR_front;
+
+    if (cCell.scoopR > 1e-6 && xs1_scoop > xs0_scoop) {
+      var rs = cCell.scoopR, sec = [[y0, d.FLOOR]];
       sec.push([y0 + rs, d.FLOOR]);
       for (var k = 0; k <= ni; k++) {                 // quarter arc, clockwise
         var a2 = -Math.PI / 2 - (Math.PI / 2) * k / ni;
         sec.push([y0 + rs + rs * Math.cos(a2), d.FLOOR + rs + rs * Math.sin(a2)]);
       }
-      addPrismX(m, sec, x0, x1);
+      addPrismX(m, sec, xs0_scoop, xs1_scoop);
     }
 
-    if (cCell.labelD > 1e-6) {
-      var ld = cCell.labelD, yb = cCell.cy + cCell.cd / 2, tb = d.H_BODY;
-      addPrismX(m, [[yb, tb], [yb - ld, tb], [yb, tb - ld]], x0, x1);
+    // Back corners (for label tab)
+    var rL_back = (isLeftOuter && isBackOuter) ? rOuter : rInner;
+    var rR_back = (isRightOuter && isBackOuter) ? rOuter : rInner;
+    var xs0_label = x0 + rL_back, xs1_label = x1 - rR_back;
+
+    if (cCell.labelD > 1e-6 && xs1_label > xs0_label) {
+      var ld = cCell.labelD, tb = d.H_BODY;
+      addPrismX(m, [[yb, tb], [yb - ld, tb], [yb, tb - ld]], xs0_label, xs1_label);
     }
     yield ++sliced / slices;
   }
