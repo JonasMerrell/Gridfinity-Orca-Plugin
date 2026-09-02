@@ -59,7 +59,7 @@ TEMPLATE = '''# /// script
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.6"
+# version = "1.5.7"
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
@@ -105,6 +105,7 @@ OUTPUT_DIRNAME = "gridfinity_output"
 #                   Instance_Hash_Minor/Major props), dwData = 1, UTF-16 body
 # ---------------------------------------------------------------------------
 IS_WINDOWS = sys.platform.startswith("win")
+IS_MACOS = sys.platform == "darwin"
 BUS_RE = re.compile(r"com[.]orcaslicer[.]OrcaSlicer[.]InstanceCheck[.]Object[0-9]+")
 WM_COPYDATA = 0x004A
 
@@ -121,26 +122,115 @@ def _payload(path):
 
 # -- Linux -------------------------------------------------------------------
 def _session_bus_name():
-    out = subprocess.run(
-        ["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus",
-         "/org/freedesktop/DBus", "org.freedesktop.DBus.ListNames"],
-        capture_output=True, text=True, timeout=10).stdout
+    try:
+        out = subprocess.run(
+            ["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus",
+             "/org/freedesktop/DBus", "org.freedesktop.DBus.ListNames"],
+            capture_output=True, text=True, timeout=10).stdout
+    except FileNotFoundError:
+        return None
     found = BUS_RE.findall(out)
     return found[0] if found else None
 
 
 def _place_dbus(path):
-    name = _session_bus_name()
+    try:
+        name = _session_bus_name()
+    except FileNotFoundError:
+        return "dbus-send is not installed on this system"
     if not name:
         return "the running instance is not exposing its file-open interface"
     obj = "/" + name.replace(".", "/")
-    done = subprocess.run(
-        ["dbus-send", "--session", "--dest=" + name, "--type=method_call",
-         obj, name + ".AnotherInstance", "string:" + _payload(path)],
-        capture_output=True, text=True, timeout=15)
+    try:
+        done = subprocess.run(
+            ["dbus-send", "--session", "--dest=" + name, "--type=method_call",
+             obj, name + ".AnotherInstance", "string:" + _payload(path)],
+            capture_output=True, text=True, timeout=15)
+    except FileNotFoundError:
+        return "dbus-send is not installed on this system"
     if done.returncode != 0:
         return (done.stderr or "the open request was rejected").strip()
     return None
+
+
+# -- macOS -------------------------------------------------------------------
+def _find_macos_app():
+    # 1. Inspect the binary path of the running process via ps
+    candidates = []
+    try:
+        res = subprocess.run(
+            ["/bin/ps", "-p", str(os.getpid()), "-o", "comm="],
+            capture_output=True, text=True, timeout=3
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            candidates.append(res.stdout.strip())
+    except Exception:
+        pass
+
+    if sys.executable:
+        candidates.append(sys.executable)
+
+    for cand in candidates:
+        p = os.path.abspath(cand)
+        while p and p != "/" and not p.endswith(".app"):
+            p = os.path.dirname(p)
+        if p.endswith(".app") and os.path.exists(p):
+            return p
+
+    # 2. Check LaunchServices for known bundle IDs via osascript
+    for bid in ("com.softfever3d.orca-slicer", "com.bambulab.bambu-studio", "com.prusa3d.slic3r"):
+        try:
+            res = subprocess.run(
+                ["/usr/bin/osascript", "-e", 'POSIX path of (path to application id "' + bid + '")'],
+                capture_output=True, text=True, timeout=3
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                p = res.stdout.strip().rstrip("/")
+                if p.endswith(".app") and os.path.exists(p):
+                    return p
+        except Exception:
+            pass
+
+    # 3. Known application names
+    for name in ("OrcaSlicer", "Orca Slicer", "BambuStudio", "Bambu Studio", "PrusaSlicer"):
+        try:
+            res = subprocess.run(
+                ["/usr/bin/osascript", "-e", 'POSIX path of (path to application "' + name + '")'],
+                capture_output=True, text=True, timeout=3
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                p = res.stdout.strip().rstrip("/")
+                if p.endswith(".app") and os.path.exists(p):
+                    return p
+        except Exception:
+            pass
+
+    return None
+
+
+def _place_macos(path):
+    app = _find_macos_app()
+    open_bin = "/usr/bin/open" if os.path.exists("/usr/bin/open") else "open"
+    cmd = [open_bin]
+    if app:
+        cmd += ["-a", app]
+    else:
+        cmd += ["-a", "OrcaSlicer"]
+    cmd.append(path)
+
+    done = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    if done.returncode == 0:
+        return None
+
+    # Fallback to AppleScript
+    target = ('"' + app + '"') if app else 'application "OrcaSlicer"'
+    safe_path = path.replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))
+    script = 'tell application ' + target + ' to open POSIX file "' + safe_path + '"'
+    done2 = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, timeout=10)
+    if done2.returncode == 0:
+        return None
+
+    return (done.stderr or done2.stderr or "could not open file in OrcaSlicer").strip()
 
 
 # -- Windows -----------------------------------------------------------------
@@ -199,7 +289,12 @@ def _place_windows(path):
 def load_onto_plate(path):
     """Ask the running OrcaSlicer to open `path`. Returns None on success,
     otherwise a short reason. Safe to call from a worker thread."""
-    place = _place_windows if IS_WINDOWS else _place_dbus
+    if IS_WINDOWS:
+        place = _place_windows
+    elif IS_MACOS:
+        place = _place_macos
+    else:
+        place = _place_dbus
     last = "unknown error"
     for attempt in (1, 2):
         try:
