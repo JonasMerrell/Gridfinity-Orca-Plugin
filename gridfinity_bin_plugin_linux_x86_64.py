@@ -6,7 +6,7 @@
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.7"
+# version = "1.5.8"
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
@@ -29,9 +29,11 @@ import base64
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
+import time
 
 import orca
 
@@ -53,7 +55,7 @@ OUTPUT_DIRNAME = "gridfinity_output"
 # ---------------------------------------------------------------------------
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MACOS = sys.platform == "darwin"
-BUS_RE = re.compile(r"com[.]orcaslicer[.]OrcaSlicer[.]InstanceCheck[.]Object[0-9]+")
+BUS_RE = re.compile(r"([a-zA-Z0-9_.-]*InstanceCheck[.]Object[0-9]+)")
 WM_COPYDATA = 0x004A
 
 
@@ -68,36 +70,101 @@ def _payload(path):
 
 
 # -- Linux -------------------------------------------------------------------
-def _session_bus_name():
+def _session_bus_names():
     try:
         out = subprocess.run(
             ["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus",
              "/org/freedesktop/DBus", "org.freedesktop.DBus.ListNames"],
-            capture_output=True, text=True, timeout=10).stdout
-    except FileNotFoundError:
-        return None
-    found = BUS_RE.findall(out)
-    return found[0] if found else None
+            capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return []
+
+    names = list(set(BUS_RE.findall(out)))
+    if not names:
+        return []
+
+    # Try to match the bus name owned by our own process PID
+    my_pid = os.getpid()
+    matched = []
+    others = []
+    for name in names:
+        try:
+            pid_out = subprocess.run(
+                ["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus",
+                 "/org/freedesktop/DBus", "org.freedesktop.DBus.GetConnectionUnixProcessID",
+                 "string:" + name],
+                capture_output=True, text=True, timeout=3).stdout
+            m = re.search(r"uint32[ 	]+([0-9]+)", pid_out)
+            if m and int(m.group(1)) == my_pid:
+                matched.append(name)
+                continue
+        except Exception:
+            pass
+        others.append(name)
+
+    # Sort others in reverse order so highest Object number (most recent) comes first
+    others.sort(reverse=True)
+    return matched + others
+
+
+def _place_cli_fallback(path):
+    candidates = []
+    appimage = os.environ.get("APPIMAGE")
+    if appimage and os.path.isfile(appimage) and os.access(appimage, os.X_OK):
+        candidates.append([appimage, path])
+
+    try:
+        proc_exe = os.path.realpath("/proc/self/exe")
+        if proc_exe and os.path.isfile(proc_exe) and ("orca" in proc_exe.lower() or "slicer" in proc_exe.lower()):
+            candidates.append([proc_exe, path])
+    except Exception:
+        pass
+
+    if sys.executable and ("orca" in sys.executable.lower() or "slicer" in sys.executable.lower()):
+        candidates.append([sys.executable, path])
+
+    for binary in ("orca-slicer", "OrcaSlicer", "bambu-studio"):
+        found = shutil.which(binary)
+        if found:
+            candidates.append([found, path])
+
+    for cmd in candidates:
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if done.returncode == 0:
+                return None
+        except Exception:
+            continue
+
+    return "could not find running OrcaSlicer process interface"
 
 
 def _place_dbus(path):
-    try:
-        name = _session_bus_name()
-    except FileNotFoundError:
-        return "dbus-send is not installed on this system"
-    if not name:
-        return "the running instance is not exposing its file-open interface"
-    obj = "/" + name.replace(".", "/")
-    try:
-        done = subprocess.run(
-            ["dbus-send", "--session", "--dest=" + name, "--type=method_call",
-             obj, name + ".AnotherInstance", "string:" + _payload(path)],
-            capture_output=True, text=True, timeout=15)
-    except FileNotFoundError:
-        return "dbus-send is not installed on this system"
-    if done.returncode != 0:
-        return (done.stderr or "the open request was rejected").strip()
-    return None
+    names = _session_bus_names()
+    if not names:
+        return _place_cli_fallback(path)
+
+    last_err = None
+    for name in names:
+        obj = "/" + name.replace(".", "/")
+        try:
+            done = subprocess.run(
+                ["dbus-send", "--session", "--dest=" + name, "--type=method_call",
+                 obj, name + ".AnotherInstance", "string:" + _payload(path)],
+                capture_output=True, text=True, timeout=10)
+            if done.returncode == 0:
+                return None
+            last_err = (done.stderr or "the open request was rejected").strip()
+        except FileNotFoundError:
+            return "dbus-send is not installed on this system"
+        except Exception as exc:
+            last_err = str(exc)
+
+    cli_err = _place_cli_fallback(path)
+    if cli_err is None:
+        return None
+
+    return last_err or cli_err or "the running instance did not accept the file"
 
 
 # -- macOS -------------------------------------------------------------------
@@ -243,7 +310,9 @@ def load_onto_plate(path):
     else:
         place = _place_dbus
     last = "unknown error"
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3):
+        if attempt > 1:
+            time.sleep(0.4)
         try:
             problem = place(path)
         except Exception as exc:
