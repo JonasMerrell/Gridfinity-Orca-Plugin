@@ -6,7 +6,7 @@
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.8"
+# version = "1.5.9"
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
@@ -60,8 +60,21 @@ WM_COPYDATA = 0x004A
 
 
 def _log(*parts):
-    """Goes to the host's python stderr log."""
-    print("[gridfinity]", *parts, file=sys.stderr, flush=True)
+    """Goes to host stderr and /tmp/gridfinity_plugin.log."""
+    msg = "[gridfinity] " + " ".join(str(p) for p in parts)
+    print(msg, file=sys.stderr, flush=True)
+    try:
+        with open("/tmp/gridfinity_plugin.log", "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+    except Exception:
+        pass
+    try:
+        out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_DIRNAME)
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "plugin.log"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+    except Exception:
+        pass
 
 
 def _payload(path):
@@ -144,21 +157,36 @@ def _place_dbus(path):
     if not names:
         return _place_cli_fallback(path)
 
+    delivered = 0
     last_err = None
     for name in names:
         obj = "/" + name.replace(".", "/")
-        try:
-            done = subprocess.run(
-                ["dbus-send", "--session", "--dest=" + name, "--type=method_call",
-                 obj, name + ".AnotherInstance", "string:" + _payload(path)],
-                capture_output=True, text=True, timeout=10)
-            if done.returncode == 0:
-                return None
-            last_err = (done.stderr or "the open request was rejected").strip()
-        except FileNotFoundError:
-            return "dbus-send is not installed on this system"
-        except Exception as exc:
-            last_err = str(exc)
+        interfaces = [name]
+        if ".Object" in name:
+            interfaces.append(name.rsplit(".", 1)[0])
+
+        for iface in interfaces:
+            try:
+                done = subprocess.run(
+                    ["dbus-send", "--session", "--print-reply", "--reply-timeout=1500", "--dest=" + name, "--type=method_call",
+                     obj, iface + ".AnotherInstance", "string:" + _payload(path)],
+                    capture_output=True, text=True, timeout=5)
+                _log("dbus-send to", name, iface, "rc:", done.returncode, "err:", (done.stderr or "").strip())
+                # OrcaSlicer AnotherInstance does not send a method return, so NoReply is expected
+                # and means the connection was kept open for the full timeout, guaranteeing OrcaSlicer's
+                # background polling thread has dispatched the message.
+                if done.returncode == 0 or "NoReply" in (done.stderr or ""):
+                    delivered += 1
+                    return None
+                else:
+                    last_err = (done.stderr or "the open request was rejected").strip()
+            except FileNotFoundError:
+                return "dbus-send is not installed on this system"
+            except Exception as exc:
+                last_err = str(exc)
+
+    if delivered > 0:
+        return None
 
     cli_err = _place_cli_fallback(path)
     if cli_err is None:
@@ -449,6 +477,109 @@ class _GridfinityCore:
                 reply({"type": "bed", "x": width, "y": depth, "printer": printer})
             return
 
+        if kind == "save_stl_start":
+            try:
+                name = message.get("name", "")
+                raw_name = os.path.basename(name or "").strip()
+                safe = re.sub(r"[^A-Za-z0-9 ._-]", "_", raw_name)
+                safe = re.sub(r" +", " ", safe).strip()
+                if not safe.lower().endswith(".stl"):
+                    safe = (safe or "gridfinity_bin") + ".stl"
+                out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_DIRNAME)
+                os.makedirs(out_dir, exist_ok=True)
+                path = os.path.abspath(os.path.join(out_dir, safe))
+                handle = open(path, "wb")
+                total_bytes = int(message.get("total_bytes", 0))
+                self._transfer = {
+                    "path": path,
+                    "handle": handle,
+                    "place": bool(message.get("place")),
+                    "total_bytes": total_bytes,
+                    "bytes": 0,
+                    "chunks": 0,
+                }
+                reply({"type": "chunk_ack", "index": -1})
+            except Exception as exc:
+                _log("save_stl_start failed:", exc)
+                reply({"type": "save_failed", "error": str(exc)})
+            return
+
+        if kind == "save_stl_chunk":
+            transfer = getattr(self, "_transfer", None)
+            if not transfer or not transfer.get("handle"):
+                return
+            idx = message.get("index", 0)
+            try:
+                chunk = message.get("chunk", "")
+                if chunk:
+                    data = base64.b64decode(chunk)
+                    transfer["handle"].write(data)
+                    transfer["bytes"] += len(data)
+                    transfer["chunks"] += 1
+                reply({"type": "chunk_ack", "index": idx})
+            except Exception as exc:
+                _log("save_stl_chunk error:", exc)
+                reply({"type": "save_failed", "error": str(exc)})
+            return
+
+        if kind == "save_stl_finish":
+            transfer = getattr(self, "_transfer", None)
+            if not transfer or not transfer.get("handle"):
+                return
+            self._transfer = None
+            try:
+                handle = transfer["handle"]
+                handle.flush()
+                os.fsync(handle.fileno())
+                handle.close()
+                path = transfer["path"]
+                place = transfer["place"]
+                total_bytes = transfer.get("total_bytes", 0)
+                written = transfer.get("bytes", 0)
+
+                if total_bytes > 0 and written != total_bytes:
+                    raise ValueError(f"Incomplete transfer: wrote {written} of {total_bytes} bytes")
+
+                actual_size = os.path.getsize(path)
+                if total_bytes > 0 and actual_size != total_bytes:
+                    raise ValueError(f"Corrupted file: expected {total_bytes} bytes, found {actual_size} bytes")
+
+                with open(path, "rb") as check_f:
+                    hdr = check_f.read(84)
+                    if len(hdr) >= 84:
+                        import struct
+                        facets = struct.unpack("<I", hdr[80:84])[0]
+                        expected_size = 84 + facets * 50
+                        if actual_size != expected_size:
+                            raise ValueError(
+                                f"STL triangle count mismatch: header declares {facets} triangles "
+                                f"({expected_size} bytes), but file is {actual_size} bytes"
+                            )
+
+                self._prune_old_stls()
+            except Exception as exc:
+                _log("save_stl_finish error:", exc)
+                reply({"type": "save_failed", "error": str(exc)})
+                return
+
+            if not place:
+                reply({"type": "saved", "path": path, "placed": False})
+                return
+
+            reply({"type": "saved", "path": path, "placed": False, "pending": True})
+
+            def worker():
+                time.sleep(0.5)
+                problem = load_onto_plate(path)
+                try:
+                    reply({"type": "placed", "path": path,
+                           "placed": problem is None, "place_error": problem or ""})
+                except Exception as exc:
+                    _log("could not report placement result:", exc)
+
+            threading.Thread(target=worker, name="gridfinity-place", daemon=True).start()
+            return
+
         if kind != "save_stl":
             return
 
@@ -467,6 +598,9 @@ class _GridfinityCore:
         reply({"type": "saved", "path": path, "placed": False, "pending": True})
 
         def worker():
+            # Give the UI thread time to complete returning from on_message
+            # so OrcaSlicer's main event loop is idle and receptive to IPC
+            time.sleep(0.5)
             problem = load_onto_plate(path)
             try:
                 reply({"type": "placed", "path": path,
@@ -475,6 +609,20 @@ class _GridfinityCore:
                 _log("could not report placement result:", exc)
 
         threading.Thread(target=worker, name="gridfinity-place", daemon=True).start()
+
+    def _prune_old_stls(self):
+        try:
+            out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_DIRNAME)
+            stls = [os.path.join(out_dir, f) for f in os.listdir(out_dir) if f.lower().endswith(".stl")]
+            if len(stls) > 50:
+                stls.sort(key=os.path.getmtime)
+                for old_f in stls[:-50]:
+                    try:
+                        os.remove(old_f)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
 
     def _write_stl(self, name, payload_b64):
         if not payload_b64:
@@ -488,14 +636,20 @@ class _GridfinityCore:
         out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_DIRNAME)
         os.makedirs(out_dir, exist_ok=True)
 
-        safe = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(name or ""))
+        raw_name = os.path.basename(name or "").strip()
+        safe = re.sub(r"[^A-Za-z0-9 ._-]", "_", raw_name)
+        safe = re.sub(r" +", " ", safe).strip()
         if not safe.lower().endswith(".stl"):
             safe = (safe or "gridfinity_bin") + ".stl"
 
         path = os.path.join(out_dir, safe)
         with open(path, "wb") as handle:
             handle.write(data)
-        return path
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        self._prune_old_stls()
+        return os.path.abspath(path)
 
 
 # ---------------------------------------------------------------------------
@@ -687,10 +841,23 @@ pre#cmd {
 }
 .btns { display:flex; gap:8px; flex-wrap:wrap; }
 .saved {
-  margin:0 0 10px; padding:7px 9px; border-radius:6px; font-size:11.5px;
-  background:var(--code-bg); color:var(--muted); word-break:break-all;
+  margin:0 0 10px; padding:9px 12px; border-radius:6px; font-size:12px; line-height:1.45;
+  background:var(--code-bg); color:var(--ink); word-break:break-word; border:1px solid var(--line);
 }
 .saved[hidden] { display:none; }
+.saved.pending {
+  border-color:#3b82f6; background:rgba(59, 130, 246, 0.1); color:var(--ink);
+}
+.saved.success {
+  border-color:#10b981; background:rgba(16, 185, 129, 0.12); color:var(--ink);
+}
+.saved.error {
+  border-color:#ef4444; background:rgba(239, 68, 68, 0.12); color:var(--ink);
+}
+.saved code {
+  font-family:monospace; font-size:11px; padding:1px 4px; border-radius:3px;
+  background:var(--bg); border:1px solid var(--line); word-break:break-all;
+}
 .bedrow { display:flex; align-items:center; gap:8px; margin:0 0 10px; }
 .bedrow[hidden] { display:none; }
 .bedrow span { font-size:11px; color:var(--muted); }
@@ -926,11 +1093,11 @@ canvas.dragging { cursor:grabbing; }
     <section>
       <h2>Output</h2>
       <div class="btns" style="margin-bottom:10px">
-        <button class="primary" id="btnRender">Render</button>
-        <button id="btnStl">Export STL</button>
+        <button class="primary" id="btnStl">Export STL</button>
+        <button id="btnRender">Preview 3D</button>
       </div>
       <label class="check" id="toPlateRow" hidden style="margin-bottom:10px">
-        <input type="checkbox" id="toPlate" checked> Add to build plate after export
+        <input type="checkbox" id="toPlate" checked> Add directly to the build plate
       </label>
       <div id="prog" class="prog" hidden>
         <div class="track"><div class="fill" id="progFill"></div></div>
@@ -2913,7 +3080,7 @@ function command() {
   }
   var adv = { wall:"wall", floorT:"floor_thickness", fillet:"inner_fillet" };
   for (var k in adv) if (P[k] !== DEFAULTS[k]) push(adv[k], P[k]);
-  return "openscad " + args.join(" ") + " -o " + stem() + ".stl gridfinity_bin.scad";
+  return 'openscad ' + args.join(" ") + ' -o "' + stem() + '.stl" gridfinity_bin.scad';
 }
 
 function stem() {
@@ -3034,13 +3201,32 @@ document.querySelectorAll(".views button").forEach(function (b) {
   b.addEventListener("click", function () { setView(b.dataset.view); });
 });
 
-/* ---- render button ---- */
 var btnRender = document.getElementById("btnRender");
 var btnStl = document.getElementById("btnStl");
 
-function note(msg, on) {
-  savedBox.hidden = !on;
-  savedBox.textContent = msg || "";
+if (ORCA) {
+  btnStl.textContent = "Add to Build Plate";
+  btnStl.className = "primary";
+  btnRender.className = "";
+  btnRender.textContent = "Preview 3D";
+  var toPlateCheck = document.getElementById("toPlate");
+  if (toPlateCheck) {
+    toPlateCheck.addEventListener("change", function () {
+      btnStl.textContent = this.checked ? "Add to Build Plate" : "Export STL";
+    });
+  }
+}
+
+function note(msg, state) {
+  if (!msg) {
+    savedBox.hidden = true;
+    savedBox.className = "saved";
+    savedBox.innerHTML = "";
+    return;
+  }
+  savedBox.hidden = false;
+  savedBox.className = "saved" + (state ? " " + state : "");
+  savedBox.innerHTML = msg;
 }
 
 /* =====================================================================
@@ -3106,24 +3292,112 @@ function buildAsync(p, seg, base, span, done, fail) {
   })();
 }
 
-/* base64 in 3-byte-aligned slices, so each piece can be encoded on its own
-   and the multi-megabyte string never has to be built up in one go. */
-function encodeAsync(buf, base, span, done, fail) {
-  var b = new Uint8Array(buf), CH = 32766, i = 0, parts = [];
-  (function pump() {
-    var until = performance.now() + SLICE_MS, n = 0;
-    try {
-      while (i < b.length) {
-        parts.push(btoa(String.fromCharCode.apply(null, b.subarray(i, i + CH))));
-        i += CH;
-        if (++n >= CHUNK_MAX || performance.now() > until) {
-          progSet("Encoding", base + span * (i / b.length));
-          return defer(pump);
+/* Stream binary STL to OrcaSlicer in 384 KB chunks (512 KB Base64).
+   Prevents WebKit IPC socket buffer overflows, eliminates 40MB heap spikes,
+   and avoids stack-overflow limits on String.fromCharCode.apply. */
+var activeTransfer = null;
+
+function streamToOrca(buf, name, isAddingToPlate, finished, failed) {
+  var b = new Uint8Array(buf);
+  var CHUNK_BYTES = 393216; // 384 * 1024, multiple of 3 so base64 has no padding (=)
+  var totalChunks = Math.ceil(b.length / CHUNK_BYTES) || 1;
+  var SUB_CH = 16383; // 16 KB sub-slice to stay well within JavaScript call stack limits
+
+  function encodeChunk(start, end) {
+    var sub = b.subarray(start, end);
+    var str = "";
+    for (var j = 0; j < sub.length; j += SUB_CH) {
+      var slice = sub.subarray(j, Math.min(j + SUB_CH, sub.length));
+      str += String.fromCharCode.apply(null, slice);
+    }
+    return btoa(str);
+  }
+
+  var ackTimer = null;
+  activeTransfer = {
+    chunkIdx: 0,
+    totalChunks: totalChunks,
+    name: name,
+    isAddingToPlate: isAddingToPlate,
+    finished: finished,
+    failed: failed,
+    buf: b,
+    sendNext: function () {
+      if (ackTimer) { clearTimeout(ackTimer); ackTimer = null; }
+      if (this.chunkIdx >= this.totalChunks) {
+        try {
+          ORCA.postMessage({
+            type: "save_stl_finish",
+            name: this.name,
+            place: this.isAddingToPlate
+          });
+        } catch (e) {
+          activeTransfer = null;
+          return this.failed(e);
         }
+        if (this.isAddingToPlate) {
+          progSet("Adding to build plate…", 0.95);
+          note("Placing model on build plate… please wait.", "pending");
+        } else {
+          this.finished("Saved");
+        }
+        activeTransfer = null;
+        return;
       }
-      done(parts.join(""));
-    } catch (e) { fail(e); }
-  })();
+
+      var start = this.chunkIdx * CHUNK_BYTES;
+      var end = Math.min(start + CHUNK_BYTES, this.buf.length);
+      var chunkB64;
+      try {
+        chunkB64 = encodeChunk(start, end);
+        ORCA.postMessage({
+          type: "save_stl_chunk",
+          index: this.chunkIdx,
+          chunk: chunkB64
+        });
+      } catch (e) {
+        activeTransfer = null;
+        return this.failed(e);
+      }
+
+      var cur = this.chunkIdx + 1;
+      this.chunkIdx++;
+      var pct = Math.round((cur / this.totalChunks) * 100);
+      progSet((this.isAddingToPlate ? "Transferring: " : "Saving: ") + pct + "%",
+              0.80 + 0.15 * (cur / this.totalChunks));
+
+      // Fallback timer: if ack is not received within 1.5s, advance anyway
+      var self = this;
+      ackTimer = setTimeout(function () {
+        ackTimer = null;
+        self.sendNext();
+      }, 1500);
+    }
+  };
+
+  try {
+    ORCA.postMessage({
+      type: "save_stl_start",
+      name: name,
+      total_bytes: b.length,
+      total_chunks: totalChunks,
+      place: isAddingToPlate
+    });
+  } catch (e) {
+    activeTransfer = null;
+    return failed(e);
+  }
+
+  if (isAddingToPlate) {
+    note("Transferring model to OrcaSlicer… please wait.", "pending");
+  }
+
+  // Kick off chunk sending after a slight defer to let save_stl_start reach Python
+  defer(function () {
+    if (activeTransfer && activeTransfer.chunkIdx === 0) {
+      activeTransfer.sendNext();
+    }
+  });
 }
 
 btnRender.addEventListener("click", function () {
@@ -3143,21 +3417,32 @@ btnRender.addEventListener("click", function () {
   });
 });
 
-/* ---- STL export: always at render tessellation ---- */
 btnStl.addEventListener("click", function () {
-  var t0 = performance.now(), name = stem() + ".stl";
+  var t0 = performance.now();
+  var toPlateCheck = document.getElementById("toPlate");
+  var isAddingToPlate = !!(ORCA && toPlateCheck && toPlateCheck.checked);
+  var ts = "";
+  if (isAddingToPlate) {
+    var now = new Date();
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    ts = "_" + pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+  }
+  var name = stem() + ts + ".stl";
   btnStl.disabled = true; btnRender.disabled = true;
+  btnStl.textContent = isAddingToPlate ? "Adding to plate…" : "Exporting…";
   note("", false);
-  progShow("Building");
+  progShow(isAddingToPlate ? "Building model" : "Building");
 
   function failed(e) {
     progDone("Failed");
-    note("Export failed: " + e.message, true);
+    note("Export failed: " + e.message, "error");
     btnStl.disabled = false; btnRender.disabled = false;
+    btnStl.textContent = isAddingToPlate ? "Add to Build Plate" : (ORCA ? "Export STL" : "Download STL");
   }
   function finished(stage) {
     progDone(stage + " in " + ((performance.now() - t0) / 1000).toFixed(1) + " s");
     btnStl.disabled = false; btnRender.disabled = false;
+    btnStl.textContent = isAddingToPlate ? "Add to Build Plate" : (ORCA ? "Export STL" : "Download STL");
   }
 
   buildAsync(P, RENDER_SEG, 0, 0.8, function (res) {
@@ -3179,18 +3464,10 @@ btnStl.addEventListener("click", function () {
         });
         return;
       }
-      encodeAsync(buf, 0.85, 0.13, function (b64) {
-        progSet("Handing to OrcaSlicer", 0.98);
-        defer(function () {
-          try {
-            ORCA.postMessage({
-              type: "save_stl", name: name, data: b64,
-              place: document.getElementById("toPlate").checked
-            });
-          } catch (e) { return failed(e); }
-          finished("Sent");
-        });
-      }, failed);
+      progSet("Preparing transfer…", 0.82);
+      defer(function () {
+        streamToOrca(buf, name, isAddingToPlate, finished, failed);
+      });
     });
   }, failed);
 });
@@ -3240,19 +3517,45 @@ if (ORCA && typeof ORCA.onMessage === "function") {
     if (m.type === "bed") applyBed(m);
     if (m.type === "bed_failed") {
       bedFrom.textContent = "could not read the printer bed";
-      note("Bed size: " + m.error + " \u2014 set Bed X/Y by hand.", true);
+      note("Bed size: " + m.error + " \u2014 set Bed X/Y by hand.", "error");
     }
     if (m.type === "saved") {
-      note("Written to " + m.path +
-           (m.pending ? " — adding to the build plate…"
-                      : " — import it with File \u203a Import."), true);
+      if (!m.pending) {
+        note("Saved STL to: <code>" + m.path + "</code><br>Import it into OrcaSlicer using <b>File \u203a Import</b>.", "");
+      } else {
+        note("STL written to disk. Handing off to OrcaSlicer build plate\u2026", "pending");
+      }
     }
     if (m.type === "placed") {
-      note(m.placed ? "Added to the build plate: " + m.path
-                    : "Written to " + m.path +
-                      " — could not add it to the plate: " + m.place_error, true);
+      btnStl.disabled = false; btnRender.disabled = false;
+      var toPlateCheck = document.getElementById("toPlate");
+      btnStl.textContent = (toPlateCheck && toPlateCheck.checked) ? "Add to Build Plate" : "Export STL";
+      if (m.placed) {
+        progDone("Added to plate!");
+        note("<strong>\u2713 Successfully added to build plate!</strong><br><span style='margin-top:5px;display:inline-block;'>Switch to the <strong>Prepare</strong> tab at the top of OrcaSlicer to view, arrange, and slice.</span>", "success");
+      } else {
+        progDone("Placement failed");
+        note("<strong>Saved STL:</strong> <code>" + m.path + "</code><br><br>Could not automatically place on plate: " + (m.place_error || "unknown error") + "<br>You can load it manually using <strong>File \u203a Import \u203a STL</strong>.", "error");
+      }
     }
-    if (m.type === "save_failed") note("Could not write the STL: " + m.error, true);
+    if (m.type === "chunk_ack") {
+      if (activeTransfer) {
+        var nextIdx = m.index + 1;
+        defer(function () {
+          if (activeTransfer && activeTransfer.chunkIdx === nextIdx) {
+            activeTransfer.sendNext();
+          }
+        });
+      }
+      return;
+    }
+    if (m.type === "save_failed") {
+      btnStl.disabled = false; btnRender.disabled = false;
+      var toPlateCheck = document.getElementById("toPlate");
+      btnStl.textContent = (toPlateCheck && toPlateCheck.checked) ? "Add to Build Plate" : "Export STL";
+      progDone("Save failed");
+      note("Could not write the STL file: " + m.error, "error");
+    }
   });
 }
 

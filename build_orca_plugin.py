@@ -59,7 +59,7 @@ TEMPLATE = '''# /// script
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.8"
+# version = "1.5.9"
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
@@ -113,8 +113,21 @@ WM_COPYDATA = 0x004A
 
 
 def _log(*parts):
-    """Goes to the host's python stderr log."""
-    print("[gridfinity]", *parts, file=sys.stderr, flush=True)
+    """Goes to host stderr and /tmp/gridfinity_plugin.log."""
+    msg = "[gridfinity] " + " ".join(str(p) for p in parts)
+    print(msg, file=sys.stderr, flush=True)
+    try:
+        with open("/tmp/gridfinity_plugin.log", "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\\n")
+    except Exception:
+        pass
+    try:
+        out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_DIRNAME)
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "plugin.log"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\\n")
+    except Exception:
+        pass
 
 
 def _payload(path):
@@ -197,21 +210,36 @@ def _place_dbus(path):
     if not names:
         return _place_cli_fallback(path)
 
+    delivered = 0
     last_err = None
     for name in names:
         obj = "/" + name.replace(".", "/")
-        try:
-            done = subprocess.run(
-                ["dbus-send", "--session", "--dest=" + name, "--type=method_call",
-                 obj, name + ".AnotherInstance", "string:" + _payload(path)],
-                capture_output=True, text=True, timeout=10)
-            if done.returncode == 0:
-                return None
-            last_err = (done.stderr or "the open request was rejected").strip()
-        except FileNotFoundError:
-            return "dbus-send is not installed on this system"
-        except Exception as exc:
-            last_err = str(exc)
+        interfaces = [name]
+        if ".Object" in name:
+            interfaces.append(name.rsplit(".", 1)[0])
+
+        for iface in interfaces:
+            try:
+                done = subprocess.run(
+                    ["dbus-send", "--session", "--print-reply", "--reply-timeout=1500", "--dest=" + name, "--type=method_call",
+                     obj, iface + ".AnotherInstance", "string:" + _payload(path)],
+                    capture_output=True, text=True, timeout=5)
+                _log("dbus-send to", name, iface, "rc:", done.returncode, "err:", (done.stderr or "").strip())
+                # OrcaSlicer AnotherInstance does not send a method return, so NoReply is expected
+                # and means the connection was kept open for the full timeout, guaranteeing OrcaSlicer's
+                # background polling thread has dispatched the message.
+                if done.returncode == 0 or "NoReply" in (done.stderr or ""):
+                    delivered += 1
+                    return None
+                else:
+                    last_err = (done.stderr or "the open request was rejected").strip()
+            except FileNotFoundError:
+                return "dbus-send is not installed on this system"
+            except Exception as exc:
+                last_err = str(exc)
+
+    if delivered > 0:
+        return None
 
     cli_err = _place_cli_fallback(path)
     if cli_err is None:
@@ -502,6 +530,109 @@ class _GridfinityCore:
                 reply({"type": "bed", "x": width, "y": depth, "printer": printer})
             return
 
+        if kind == "save_stl_start":
+            try:
+                name = message.get("name", "")
+                raw_name = os.path.basename(name or "").strip()
+                safe = re.sub(r"[^A-Za-z0-9 ._-]", "_", raw_name)
+                safe = re.sub(r" +", " ", safe).strip()
+                if not safe.lower().endswith(".stl"):
+                    safe = (safe or "gridfinity_bin") + ".stl"
+                out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_DIRNAME)
+                os.makedirs(out_dir, exist_ok=True)
+                path = os.path.abspath(os.path.join(out_dir, safe))
+                handle = open(path, "wb")
+                total_bytes = int(message.get("total_bytes", 0))
+                self._transfer = {
+                    "path": path,
+                    "handle": handle,
+                    "place": bool(message.get("place")),
+                    "total_bytes": total_bytes,
+                    "bytes": 0,
+                    "chunks": 0,
+                }
+                reply({"type": "chunk_ack", "index": -1})
+            except Exception as exc:
+                _log("save_stl_start failed:", exc)
+                reply({"type": "save_failed", "error": str(exc)})
+            return
+
+        if kind == "save_stl_chunk":
+            transfer = getattr(self, "_transfer", None)
+            if not transfer or not transfer.get("handle"):
+                return
+            idx = message.get("index", 0)
+            try:
+                chunk = message.get("chunk", "")
+                if chunk:
+                    data = base64.b64decode(chunk)
+                    transfer["handle"].write(data)
+                    transfer["bytes"] += len(data)
+                    transfer["chunks"] += 1
+                reply({"type": "chunk_ack", "index": idx})
+            except Exception as exc:
+                _log("save_stl_chunk error:", exc)
+                reply({"type": "save_failed", "error": str(exc)})
+            return
+
+        if kind == "save_stl_finish":
+            transfer = getattr(self, "_transfer", None)
+            if not transfer or not transfer.get("handle"):
+                return
+            self._transfer = None
+            try:
+                handle = transfer["handle"]
+                handle.flush()
+                os.fsync(handle.fileno())
+                handle.close()
+                path = transfer["path"]
+                place = transfer["place"]
+                total_bytes = transfer.get("total_bytes", 0)
+                written = transfer.get("bytes", 0)
+
+                if total_bytes > 0 and written != total_bytes:
+                    raise ValueError(f"Incomplete transfer: wrote {written} of {total_bytes} bytes")
+
+                actual_size = os.path.getsize(path)
+                if total_bytes > 0 and actual_size != total_bytes:
+                    raise ValueError(f"Corrupted file: expected {total_bytes} bytes, found {actual_size} bytes")
+
+                with open(path, "rb") as check_f:
+                    hdr = check_f.read(84)
+                    if len(hdr) >= 84:
+                        import struct
+                        facets = struct.unpack("<I", hdr[80:84])[0]
+                        expected_size = 84 + facets * 50
+                        if actual_size != expected_size:
+                            raise ValueError(
+                                f"STL triangle count mismatch: header declares {facets} triangles "
+                                f"({expected_size} bytes), but file is {actual_size} bytes"
+                            )
+
+                self._prune_old_stls()
+            except Exception as exc:
+                _log("save_stl_finish error:", exc)
+                reply({"type": "save_failed", "error": str(exc)})
+                return
+
+            if not place:
+                reply({"type": "saved", "path": path, "placed": False})
+                return
+
+            reply({"type": "saved", "path": path, "placed": False, "pending": True})
+
+            def worker():
+                time.sleep(0.5)
+                problem = load_onto_plate(path)
+                try:
+                    reply({"type": "placed", "path": path,
+                           "placed": problem is None, "place_error": problem or ""})
+                except Exception as exc:
+                    _log("could not report placement result:", exc)
+
+            threading.Thread(target=worker, name="gridfinity-place", daemon=True).start()
+            return
+
         if kind != "save_stl":
             return
 
@@ -520,6 +651,9 @@ class _GridfinityCore:
         reply({"type": "saved", "path": path, "placed": False, "pending": True})
 
         def worker():
+            # Give the UI thread time to complete returning from on_message
+            # so OrcaSlicer's main event loop is idle and receptive to IPC
+            time.sleep(0.5)
             problem = load_onto_plate(path)
             try:
                 reply({"type": "placed", "path": path,
@@ -528,6 +662,20 @@ class _GridfinityCore:
                 _log("could not report placement result:", exc)
 
         threading.Thread(target=worker, name="gridfinity-place", daemon=True).start()
+
+    def _prune_old_stls(self):
+        try:
+            out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_DIRNAME)
+            stls = [os.path.join(out_dir, f) for f in os.listdir(out_dir) if f.lower().endswith(".stl")]
+            if len(stls) > 50:
+                stls.sort(key=os.path.getmtime)
+                for old_f in stls[:-50]:
+                    try:
+                        os.remove(old_f)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
 
     def _write_stl(self, name, payload_b64):
         if not payload_b64:
@@ -541,14 +689,20 @@ class _GridfinityCore:
         out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUTPUT_DIRNAME)
         os.makedirs(out_dir, exist_ok=True)
 
-        safe = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(name or ""))
+        raw_name = os.path.basename(name or "").strip()
+        safe = re.sub(r"[^A-Za-z0-9 ._-]", "_", raw_name)
+        safe = re.sub(r" +", " ", safe).strip()
         if not safe.lower().endswith(".stl"):
             safe = (safe or "gridfinity_bin") + ".stl"
 
         path = os.path.join(out_dir, safe)
         with open(path, "wb") as handle:
             handle.write(data)
-        return path
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        self._prune_old_stls()
+        return os.path.abspath(path)
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +813,12 @@ def install(host_file):
                 os.remove(legacy)
             except OSError:
                 pass
+
+        # Remove rogue duplicate folder if user previously extracted/created a folder with the script name
+        parent = os.path.dirname(target)
+        rogue = os.path.join(parent, os.path.basename(host_file))
+        if os.path.isdir(rogue):
+            shutil.rmtree(rogue, ignore_errors=True)
 
         # a stale bytecode cache can mask the new source
         for junk in glob.glob(os.path.join(target, "__pycache__")):
