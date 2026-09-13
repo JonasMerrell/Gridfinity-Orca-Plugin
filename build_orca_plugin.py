@@ -51,7 +51,8 @@ def target_output_path(target):
     return os.path.join(HERE, f"{PLUGIN_STEM}_{target}.py")
 
 
-TEMPLATE = '''# /// script
+TEMPLATE = '''# -*- coding: utf-8 -*-
+# /// script
 # requires-python = ">=3.12"
 # dependencies = []
 #
@@ -59,7 +60,8 @@ TEMPLATE = '''# /// script
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.9"
+# version = "1.6.0"
+# ///
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
@@ -520,14 +522,30 @@ class _GridfinityCore:
         kind = message.get("type")
 
         if kind == "get_bed":
+            settings = self._read_settings()
             try:
                 width, depth, printer = active_bed_size()
             except Exception as exc:
                 _log("bed size lookup failed:", exc)
-                reply({"type": "bed_failed", "error": str(exc)})
+                reply({"type": "bed_failed", "error": str(exc), "settings": settings})
             else:
                 _log("bed size from", printer, "=", width, "x", depth)
-                reply({"type": "bed", "x": width, "y": depth, "printer": printer})
+                reply({"type": "bed", "x": width, "y": depth, "printer": printer, "settings": settings})
+            return
+
+        if kind == "get_settings":
+            reply({"type": "settings", "settings": self._read_settings()})
+            return
+
+        if kind == "save_settings":
+            settings = message.get("settings")
+            self._write_settings(settings)
+            reply({"type": "settings_saved"})
+            return
+
+        if kind == "reset_settings":
+            self._write_settings(None)
+            reply({"type": "settings_reset"})
             return
 
         if kind == "save_stl_start":
@@ -704,25 +722,60 @@ class _GridfinityCore:
         self._prune_old_stls()
         return os.path.abspath(path)
 
+    def _settings_path(self):
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+
+    def _read_settings(self):
+        path = self._settings_path()
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as exc:
+                _log("failed to read settings:", exc)
+        return None
+
+    def _write_settings(self, data):
+        path = self._settings_path()
+        try:
+            if data is None:
+                if os.path.isfile(path):
+                    os.remove(path)
+                return
+            tmp_path = path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        except Exception as exc:
+            _log("failed to write settings:", exc)
+
 
 # ---------------------------------------------------------------------------
-# A tab in the main window
+# A tab in the main window (when supported by host)
 # ---------------------------------------------------------------------------
-class GridfinityPage(orca.pages.PagesPluginCapabilityBase, _GridfinityCore):
-    def __init__(self):
-        super().__init__()
+_PAGES = getattr(orca, "pages", None)
+_PAGE_CAPABILITY_BASE = getattr(_PAGES, "PagesPluginCapabilityBase", None)
 
-    def get_name(self):
-        return "Gridfinity"
+if _PAGE_CAPABILITY_BASE is not None:
+    class GridfinityPage(_PAGE_CAPABILITY_BASE, _GridfinityCore):
+        def __init__(self):
+            super().__init__()
 
-    def get_icon(self):
-        return "param_grid"
+        def get_name(self):
+            return "Gridfinity"
 
-    def get_ui(self):
-        return PAGE
+        def get_icon(self):
+            return "param_grid"
 
-    def on_message(self, message):
-        self._handle(message, self.post_message)
+        def get_ui(self):
+            return PAGE
+
+        def on_message(self, message):
+            self._handle(message, self.post_message)
+else:
+    GridfinityPage = None
 
 
 # ---------------------------------------------------------------------------
@@ -774,8 +827,15 @@ class GridfinityWindow(orca.script.ScriptPluginCapabilityBase, _GridfinityCore):
 @orca.plugin
 class GridfinityPlugin(orca.base):
     def register_capabilities(self):
-        orca.register_capability(GridfinityPage)
-        orca.register_capability(GridfinityWindow)
+        if GridfinityPage is not None:
+            try:
+                orca.register_capability(GridfinityPage)
+            except Exception as exc:
+                _log("could not register GridfinityPage:", exc)
+        try:
+            orca.register_capability(GridfinityWindow)
+        except Exception as exc:
+            _log("could not register GridfinityWindow:", exc)
 
 
 PAGE = r"""__HTML__"""

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # /// script
 # requires-python = ">=3.12"
 # dependencies = []
@@ -6,7 +7,8 @@
 # name = "Gridfinity Bin & Baseplate Generator"
 # description = "Parametric Gridfinity bins and interlocking baseplates: custom compartments, exact mm sizing with edge padding, 3D WebGL preview, and direct build plate drop."
 # author = "jonas"
-# version = "1.5.9"
+# version = "1.6.0"
+# ///
 """Gridfinity bin and baseplate generator for OrcaSlicer.
 
 Registers two capabilities:
@@ -467,14 +469,30 @@ class _GridfinityCore:
         kind = message.get("type")
 
         if kind == "get_bed":
+            settings = self._read_settings()
             try:
                 width, depth, printer = active_bed_size()
             except Exception as exc:
                 _log("bed size lookup failed:", exc)
-                reply({"type": "bed_failed", "error": str(exc)})
+                reply({"type": "bed_failed", "error": str(exc), "settings": settings})
             else:
                 _log("bed size from", printer, "=", width, "x", depth)
-                reply({"type": "bed", "x": width, "y": depth, "printer": printer})
+                reply({"type": "bed", "x": width, "y": depth, "printer": printer, "settings": settings})
+            return
+
+        if kind == "get_settings":
+            reply({"type": "settings", "settings": self._read_settings()})
+            return
+
+        if kind == "save_settings":
+            settings = message.get("settings")
+            self._write_settings(settings)
+            reply({"type": "settings_saved"})
+            return
+
+        if kind == "reset_settings":
+            self._write_settings(None)
+            reply({"type": "settings_reset"})
             return
 
         if kind == "save_stl_start":
@@ -651,25 +669,60 @@ class _GridfinityCore:
         self._prune_old_stls()
         return os.path.abspath(path)
 
+    def _settings_path(self):
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+
+    def _read_settings(self):
+        path = self._settings_path()
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as exc:
+                _log("failed to read settings:", exc)
+        return None
+
+    def _write_settings(self, data):
+        path = self._settings_path()
+        try:
+            if data is None:
+                if os.path.isfile(path):
+                    os.remove(path)
+                return
+            tmp_path = path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        except Exception as exc:
+            _log("failed to write settings:", exc)
+
 
 # ---------------------------------------------------------------------------
-# A tab in the main window
+# A tab in the main window (when supported by host)
 # ---------------------------------------------------------------------------
-class GridfinityPage(orca.pages.PagesPluginCapabilityBase, _GridfinityCore):
-    def __init__(self):
-        super().__init__()
+_PAGES = getattr(orca, "pages", None)
+_PAGE_CAPABILITY_BASE = getattr(_PAGES, "PagesPluginCapabilityBase", None)
 
-    def get_name(self):
-        return "Gridfinity"
+if _PAGE_CAPABILITY_BASE is not None:
+    class GridfinityPage(_PAGE_CAPABILITY_BASE, _GridfinityCore):
+        def __init__(self):
+            super().__init__()
 
-    def get_icon(self):
-        return "param_grid"
+        def get_name(self):
+            return "Gridfinity"
 
-    def get_ui(self):
-        return PAGE
+        def get_icon(self):
+            return "param_grid"
 
-    def on_message(self, message):
-        self._handle(message, self.post_message)
+        def get_ui(self):
+            return PAGE
+
+        def on_message(self, message):
+            self._handle(message, self.post_message)
+else:
+    GridfinityPage = None
 
 
 # ---------------------------------------------------------------------------
@@ -721,8 +774,15 @@ class GridfinityWindow(orca.script.ScriptPluginCapabilityBase, _GridfinityCore):
 @orca.plugin
 class GridfinityPlugin(orca.base):
     def register_capabilities(self):
-        orca.register_capability(GridfinityPage)
-        orca.register_capability(GridfinityWindow)
+        if GridfinityPage is not None:
+            try:
+                orca.register_capability(GridfinityPage)
+            except Exception as exc:
+                _log("could not register GridfinityPage:", exc)
+        try:
+            orca.register_capability(GridfinityWindow)
+        except Exception as exc:
+            _log("could not register GridfinityWindow:", exc)
 
 
 PAGE = r"""<!DOCTYPE html>
@@ -974,12 +1034,12 @@ canvas.dragging { cursor:grabbing; }
 
         <div id="plateBufferAlignOpts" hidden style="margin-top:6px; margin-bottom:8px">
           <div class="row">
-            <label for="buf_x_ratio">Left ⟷ Right</label>
+            <label for="buf_x_ratio">Left &harr; Right</label>
             <input type="range" id="buf_x_ratio" min="0" max="100" step="1" value="50">
             <input type="number" id="buf_x_ratio_num" min="0" max="100" step="1" value="50">
           </div>
           <div class="row">
-            <label for="buf_y_ratio">Down ⟷ Up</label>
+            <label for="buf_y_ratio">Down &harr; Up</label>
             <input type="range" id="buf_y_ratio" min="0" max="100" step="1" value="50">
             <input type="number" id="buf_y_ratio_num" min="0" max="100" step="1" value="50">
           </div>
@@ -1104,6 +1164,9 @@ canvas.dragging { cursor:grabbing; }
         <div class="lbl"><span id="progStage"></span><span id="progPct"></span></div>
       </div>
       <div id="saved" class="saved" hidden></div>
+      <div style="margin-top:14px; text-align:center;">
+        <button type="button" id="btnReset" style="font-size:11.5px; padding:4px 8px; color:var(--muted); border:none; background:none; cursor:pointer; text-decoration:underline;">Reset to Defaults</button>
+      </div>
     </section>
   </aside>
 
@@ -2712,6 +2775,62 @@ var P = Object.assign({}, DEFAULTS, {
 });
 var FLOATS = ["wall","floorT","scoopR","labelD","labelW","fillet","plateBase","plateR","bedX","bedY","plateGap"];
 var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors"];
+var SLIDERS = [
+  { id: "gx", num: "gx_num", refit: true },
+  { id: "gy", num: "gy_num", refit: true },
+  { id: "gz", num: "gz_num", refit: true },
+  { id: "dx", num: "dx_num", refit: false },
+  { id: "dy", num: "dy_num", refit: false },
+  { id: "num_rows", num: "num_rows_num", refit: false },
+  { id: "num_cols", num: "num_cols_num", refit: false },
+  { id: "plate_gx", num: "plate_gx_num", refit: true },
+  { id: "plate_gy", num: "plate_gy_num", refit: true },
+  { id: "plate_mm_x", num: "plate_mm_x_num", refit: true },
+  { id: "plate_mm_y", num: "plate_mm_y_num", refit: true },
+  { id: "buf_x_ratio", num: "buf_x_ratio_num", refit: true },
+  { id: "buf_y_ratio", num: "buf_y_ratio_num", refit: true },
+  { id: "scoopR", num: "scoopR_num", refit: false },
+  { id: "labelD", num: "labelD_num", refit: false },
+  { id: "labelW", num: "labelW_num", refit: false }
+];
+var DEFAULT_SETTINGS = {
+  mode: "bin",
+  gx: 2, gy: 1, gz: 6,
+  comp_layout: "grid",
+  dx: 2, dy: 1,
+  num_rows: 2,
+  row_divs: [2, 1],
+  num_cols: 2,
+  col_divs: [2, 1],
+  lip: true,
+  scoop: true,
+  scoopR: 6,
+  label: false,
+  labelD: 12,
+  labelW: 0,
+  mag: false,
+  screw: false,
+  wall: 1.2,
+  floorT: 1.4,
+  fillet: 0.8,
+  plate_size_mode: "units",
+  plate_gx: 4,
+  plate_gy: 3,
+  plate_mm_x: 168,
+  plate_mm_y: 126,
+  plateExact: false,
+  buf_x_ratio: 50,
+  buf_y_ratio: 50,
+  plateBase: 0,
+  plateR: 4,
+  bedX: 250,
+  bedY: 220,
+  plateGap: 0,
+  plateConnectors: true,
+  toPlate: true
+};
+var hasSavedSettings = false;
+var manualBedQuery = false;
 var lastTris = 0;
 
 function mmToUnits(mm) {
@@ -2842,6 +2961,168 @@ function renderColList() {
   }
 }
 
+function serializeSettings() {
+  var toPlateCheck = document.getElementById("toPlate");
+  return {
+    mode: (document.getElementById("mode_plate") && document.getElementById("mode_plate").checked) ? "plate" : "bin",
+    gx: getVal("gx", "gx_num"),
+    gy: getVal("gy", "gy_num"),
+    gz: getVal("gz", "gz_num"),
+    comp_layout: (document.getElementById("layout_rows") && document.getElementById("layout_rows").checked) ? "rows" :
+                 ((document.getElementById("layout_cols") && document.getElementById("layout_cols").checked) ? "cols" : "grid"),
+    dx: getVal("dx", "dx_num"),
+    dy: getVal("dy", "dy_num"),
+    num_rows: getVal("num_rows", "num_rows_num"),
+    row_divs: (P.row_divs || []).slice(),
+    num_cols: getVal("num_cols", "num_cols_num"),
+    col_divs: (P.col_divs || []).slice(),
+    lip: document.getElementById("lip") ? !!document.getElementById("lip").checked : true,
+    scoop: document.getElementById("scoop") ? !!document.getElementById("scoop").checked : true,
+    scoopR: getVal("scoopR", "scoopR_num", 50, 0.5),
+    label: document.getElementById("label") ? !!document.getElementById("label").checked : false,
+    labelD: getVal("labelD", "labelD_num", 50, 1),
+    labelW: getVal("labelW", "labelW_num", 500, 0),
+    mag: document.getElementById("mag") ? !!document.getElementById("mag").checked : false,
+    screw: document.getElementById("screw") ? !!document.getElementById("screw").checked : false,
+    wall: parseFloat(document.getElementById("wall") ? document.getElementById("wall").value : 1.2),
+    floorT: parseFloat(document.getElementById("floorT") ? document.getElementById("floorT").value : 1.4),
+    fillet: parseFloat(document.getElementById("fillet") ? document.getElementById("fillet").value : 0.8),
+    plate_size_mode: (document.getElementById("plate_mode_mm") && document.getElementById("plate_mode_mm").checked) ? "mm" : "units",
+    plate_gx: getVal("plate_gx", "plate_gx_num", 50),
+    plate_gy: getVal("plate_gy", "plate_gy_num", 50),
+    plate_mm_x: getVal("plate_mm_x", "plate_mm_x_num", 2000),
+    plate_mm_y: getVal("plate_mm_y", "plate_mm_y_num", 2000),
+    plateExact: !!P.plateExact,
+    buf_x_ratio: getVal("buf_x_ratio", "buf_x_ratio_num", 100, 0),
+    buf_y_ratio: getVal("buf_y_ratio", "buf_y_ratio_num", 100, 0),
+    plateBase: parseFloat(document.getElementById("plateBase") ? document.getElementById("plateBase").value : 0),
+    plateR: parseFloat(document.getElementById("plateR") ? document.getElementById("plateR").value : 4),
+    bedX: parseFloat(document.getElementById("bedX") ? document.getElementById("bedX").value : 250),
+    bedY: parseFloat(document.getElementById("bedY") ? document.getElementById("bedY").value : 220),
+    plateGap: parseFloat(document.getElementById("plateGap") ? document.getElementById("plateGap").value : 0),
+    plateConnectors: document.getElementById("plateConnectors") ? !!document.getElementById("plateConnectors").checked : true,
+    toPlate: toPlateCheck ? !!toPlateCheck.checked : true
+  };
+}
+
+var saveTimer = null;
+function saveSettingsDebounced() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(function () {
+    saveTimer = null;
+    var data = serializeSettings();
+    try {
+      localStorage.setItem("gridfinity_settings", JSON.stringify(data));
+      hasSavedSettings = true;
+    } catch (e) {}
+    if (ORCA) {
+      ORCA.postMessage({ type: "save_settings", settings: data });
+    }
+  }, 300);
+}
+
+var isApplyingSettings = false;
+function applySettings(s) {
+  if (!s || typeof s !== "object") return;
+  isApplyingSettings = true;
+  try {
+    if (s.mode === "plate") {
+      var mp = document.getElementById("mode_plate");
+      if (mp) mp.checked = true;
+      var mb = document.getElementById("mode_bin");
+      if (mb) mb.checked = false;
+    } else if (s.mode === "bin") {
+      var mb2 = document.getElementById("mode_bin");
+      if (mb2) mb2.checked = true;
+      var mp2 = document.getElementById("mode_plate");
+      if (mp2) mp2.checked = false;
+    }
+
+    if (s.comp_layout) {
+      var lg = document.getElementById("layout_grid");
+      var lr = document.getElementById("layout_rows");
+      var lc = document.getElementById("layout_cols");
+      if (lg) lg.checked = (s.comp_layout === "grid");
+      if (lr) lr.checked = (s.comp_layout === "rows");
+      if (lc) lc.checked = (s.comp_layout === "cols");
+    }
+
+    if (s.plate_size_mode) {
+      var pu = document.getElementById("plate_mode_units");
+      var pm = document.getElementById("plate_mode_mm");
+      if (pu) pu.checked = (s.plate_size_mode !== "mm");
+      if (pm) pm.checked = (s.plate_size_mode === "mm");
+    }
+
+    if (Array.isArray(s.row_divs)) P.row_divs = s.row_divs.slice();
+    if (Array.isArray(s.col_divs)) P.col_divs = s.col_divs.slice();
+    if (typeof s.num_rows === "number") {
+      P.num_rows = s.num_rows;
+      var nrR = document.getElementById("num_rows");
+      var nrN = document.getElementById("num_rows_num");
+      if (nrR) nrR.value = Math.min(+nrR.max || 8, Math.max(+nrR.min || 1, s.num_rows));
+      if (nrN) nrN.value = s.num_rows;
+    }
+    if (typeof s.num_cols === "number") {
+      P.num_cols = s.num_cols;
+      var ncR = document.getElementById("num_cols");
+      var ncN = document.getElementById("num_cols_num");
+      if (ncR) ncR.value = Math.min(+ncR.max || 8, Math.max(+ncR.min || 1, s.num_cols));
+      if (ncN) ncN.value = s.num_cols;
+    }
+    renderRowList();
+    renderColList();
+
+    SLIDERS.forEach(function (item) {
+      if (s[item.id] !== undefined && item.id !== "num_rows" && item.id !== "num_cols") {
+        var r = document.getElementById(item.id);
+        var n = document.getElementById(item.num);
+        var val = s[item.id];
+        if (r) r.value = Math.min(+r.max || 9999, Math.max(+r.min || 0, val));
+        if (n) n.value = val;
+      }
+    });
+
+    FLOATS.forEach(function (k) {
+      if (s[k] !== undefined) {
+        var el = document.getElementById(k);
+        if (el) el.value = s[k];
+        P[k] = parseFloat(s[k]);
+      }
+    });
+
+    BOOLS.forEach(function (k) {
+      if (s[k] !== undefined) {
+        var el = document.getElementById(k);
+        if (el) el.checked = !!s[k];
+        P[k] = !!s[k];
+      }
+    });
+
+    if (s.plateExact !== undefined) {
+      P.plateExact = !!s.plateExact;
+    }
+
+    if (s.toPlate !== undefined) {
+      var tp = document.getElementById("toPlate");
+      if (tp) tp.checked = !!s.toPlate;
+      var btnStl = document.getElementById("btnStl");
+      if (btnStl && ORCA) {
+        btnStl.textContent = s.toPlate ? "Add to Build Plate" : "Export STL";
+      }
+    }
+
+    readControls();
+    updateReadout();
+    if (typeof gl !== "undefined" && gl) {
+      rebuild("preview");
+      frameCamera();
+    }
+  } finally {
+    isApplyingSettings = false;
+  }
+}
+
 function readControls() {
   var isPlate = document.getElementById("mode_plate").checked;
   P.mode = isPlate ? "plate" : "bin";
@@ -2946,23 +3227,23 @@ function readControls() {
     if (btnExact) {
       if (P.plateExact && isMm && (dp.padLeft > 0 || dp.padRight > 0 || dp.padBottom > 0 || dp.padTop > 0)) {
         btnExact.className = "primary";
-        btnExact.textContent = "✓ Edge padding active (exact " + fmt(dp.OX) + " × " + fmt(dp.OY) + " mm)";
+        btnExact.textContent = "\u2713 Edge padding active (exact " + fmt(dp.OX) + " \u00d7 " + fmt(dp.OY) + " mm)";
       } else {
         btnExact.className = "";
         var remX = Math.max(0, Math.round((P.plate_mm_x - P.plate_gx * GRID) * 10) / 10);
         var remY = Math.max(0, Math.round((P.plate_mm_y - P.plate_gy * GRID) * 10) / 10);
-        btnExact.textContent = "Add edge padding for exact size (+" + remX + "×" + remY + " mm)";
+        btnExact.textContent = "Add edge padding for exact size (+" + remX + "\u00d7" + remY + " mm)";
       }
     }
 
     var fitInfo = document.getElementById("plateFitInfo");
     if (fitInfo) {
       if (P.plateExact && isMm && (dp.padLeft > 0 || dp.padRight > 0 || dp.padBottom > 0 || dp.padTop > 0)) {
-        var xDesc = dp.padLeft === dp.padRight ? ("±" + fmt(dp.padLeft) + " mm") : ("L: " + fmt(dp.padLeft) + " mm / R: " + fmt(dp.padRight) + " mm");
-        var yDesc = dp.padBottom === dp.padTop ? ("±" + fmt(dp.padBottom) + " mm") : ("Bottom: " + fmt(dp.padBottom) + " mm / Top: " + fmt(dp.padTop) + " mm");
-        fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units + buffer (X: " + xDesc + ", Y: " + yDesc + ") = exact " + fmt(dp.OX) + " × " + fmt(dp.OY) + " mm";
+        var xDesc = dp.padLeft === dp.padRight ? ("\u00b1" + fmt(dp.padLeft) + " mm") : ("L: " + fmt(dp.padLeft) + " mm / R: " + fmt(dp.padRight) + " mm");
+        var yDesc = dp.padBottom === dp.padTop ? ("\u00b1" + fmt(dp.padBottom) + " mm") : ("Bottom: " + fmt(dp.padBottom) + " mm / Top: " + fmt(dp.padTop) + " mm");
+        fitInfo.textContent = "Fits " + P.plate_gx + " \u00d7 " + P.plate_gy + " units + buffer (X: " + xDesc + ", Y: " + yDesc + ") = exact " + fmt(dp.OX) + " \u00d7 " + fmt(dp.OY) + " mm";
       } else {
-        fitInfo.textContent = "Fits " + P.plate_gx + " × " + P.plate_gy + " units (" + fmt(P.plate_gx * GRID) + " × " + fmt(P.plate_gy * GRID) + " mm)";
+        fitInfo.textContent = "Fits " + P.plate_gx + " \u00d7 " + P.plate_gy + " units (" + fmt(P.plate_gx * GRID) + " \u00d7 " + fmt(P.plate_gy * GRID) + " mm)";
       }
     }
 
@@ -3015,7 +3296,7 @@ function rebuild(q) {
 function updateReadout() {
   if (P.mode === "plate") return updatePlateReadout();
   var d = derive(P);
-  document.getElementById("s_foot").textContent = fmt(d.OX) + " × " + fmt(d.OY) + " mm";
+  document.getElementById("s_foot").textContent = fmt(d.OX) + " \u00d7 " + fmt(d.OY) + " mm";
   document.getElementById("s_tall").textContent =
     fmt(d.TOP) + " mm" + (P.lip ? " (body " + fmt(d.H_BODY) + ")" : "");
 
@@ -3023,33 +3304,33 @@ function updateReadout() {
   if (!d.cells || d.cells.length === 0) {
     compText = "0 compartments";
   } else if (d.cells.length === 1) {
-    compText = "1 (" + fmt(d.cells[0].cw) + " × " + fmt(d.cells[0].cd) + " mm)";
+    compText = "1 (" + fmt(d.cells[0].cw) + " \u00d7 " + fmt(d.cells[0].cd) + " mm)";
   } else if (P.comp_layout === "rows") {
     compText = d.cells.length + " in " + P.num_rows + " rows (" + (P.row_divs || []).join(", ") + ")";
   } else if (P.comp_layout === "cols") {
     compText = d.cells.length + " in " + P.num_cols + " cols (" + (P.col_divs || []).join(", ") + ")";
   } else {
-    compText = d.cells.length + " (" + fmt(d.cells[0].cw) + " × " + fmt(d.cells[0].cd) + " mm)";
+    compText = d.cells.length + " (" + fmt(d.cells[0].cw) + " \u00d7 " + fmt(d.cells[0].cd) + " mm)";
   }
   document.getElementById("s_comp").textContent = compText;
   document.getElementById("s_depth").textContent = fmt(d.depth) + " mm";
   var warn = document.getElementById("s_warn"), msgs = [];
   if (!d.valid) msgs.push("These settings leave no usable compartment.");
-  else if (d.depth < 2) msgs.push("Compartments are under 2 mm deep — raise the height.");
+  else if (d.depth < 2) msgs.push("Compartments are under 2 mm deep \u2014 raise the height.");
   warn.hidden = msgs.length === 0;
   warn.textContent = msgs.join(" ");
 }
 
 function updatePlateReadout() {
   var d = derivePlate(P);
-  document.getElementById("s_foot").textContent = fmt(d.OX) + " × " + fmt(d.OY) + " mm";
+  document.getElementById("s_foot").textContent = fmt(d.OX) + " \u00d7 " + fmt(d.OY) + " mm";
   document.getElementById("s_tall").textContent = fmt(d.H) + " mm";
-  var sizeText = P.gx + " × " + P.gy + " cells";
+  var sizeText = P.gx + " \u00d7 " + P.gy + " cells";
   if (P.plate_size_mode === "mm") {
     if (d.padLeft > 0 || d.padRight > 0 || d.padBottom > 0 || d.padTop > 0) {
-      sizeText += " + buffer (exact " + fmt(d.OX) + " × " + fmt(d.OY) + " mm)";
+      sizeText += " + buffer (exact " + fmt(d.OX) + " \u00d7 " + fmt(d.OY) + " mm)";
     } else {
-      sizeText += " (target " + P.plate_mm_x + " × " + P.plate_mm_y + " mm)";
+      sizeText += " (target " + P.plate_mm_x + " \u00d7 " + P.plate_mm_y + " mm)";
     }
   }
   document.getElementById("s_comp").textContent = sizeText;
@@ -3120,26 +3401,10 @@ function onChange(refit) {
     rebuildTimer = null;
     rebuild("preview");
   }, 45);
+  if (!isApplyingSettings) {
+    saveSettingsDebounced();
+  }
 }
-
-var SLIDERS = [
-  { id: "gx", num: "gx_num", refit: true },
-  { id: "gy", num: "gy_num", refit: true },
-  { id: "gz", num: "gz_num", refit: true },
-  { id: "dx", num: "dx_num", refit: false },
-  { id: "dy", num: "dy_num", refit: false },
-  { id: "num_rows", num: "num_rows_num", refit: false },
-  { id: "num_cols", num: "num_cols_num", refit: false },
-  { id: "plate_gx", num: "plate_gx_num", refit: true },
-  { id: "plate_gy", num: "plate_gy_num", refit: true },
-  { id: "plate_mm_x", num: "plate_mm_x_num", refit: true },
-  { id: "plate_mm_y", num: "plate_mm_y_num", refit: true },
-  { id: "buf_x_ratio", num: "buf_x_ratio_num", refit: true },
-  { id: "buf_y_ratio", num: "buf_y_ratio_num", refit: true },
-  { id: "scoopR", num: "scoopR_num", refit: false },
-  { id: "labelD", num: "labelD_num", refit: false },
-  { id: "labelW", num: "labelW_num", refit: false }
-];
 
 SLIDERS.forEach(function (s) {
   var rangeEl = document.getElementById(s.id);
@@ -3205,16 +3470,44 @@ var btnRender = document.getElementById("btnRender");
 var btnStl = document.getElementById("btnStl");
 
 if (ORCA) {
-  btnStl.textContent = "Add to Build Plate";
+  var toPlateCheck = document.getElementById("toPlate");
+  btnStl.textContent = (toPlateCheck && toPlateCheck.checked) ? "Add to Build Plate" : "Export STL";
   btnStl.className = "primary";
   btnRender.className = "";
   btnRender.textContent = "Preview 3D";
-  var toPlateCheck = document.getElementById("toPlate");
   if (toPlateCheck) {
     toPlateCheck.addEventListener("change", function () {
       btnStl.textContent = this.checked ? "Add to Build Plate" : "Export STL";
+      saveSettingsDebounced();
     });
   }
+}
+
+var btnReset = document.getElementById("btnReset");
+var resetConfirmTimer = null;
+if (btnReset) {
+  btnReset.addEventListener("click", function () {
+    if (btnReset.dataset.confirming === "true") {
+      btnReset.dataset.confirming = "false";
+      btnReset.textContent = "Reset to Defaults";
+      if (resetConfirmTimer) clearTimeout(resetConfirmTimer);
+      hasSavedSettings = false;
+      try { localStorage.removeItem("gridfinity_settings"); } catch (e) {}
+      if (ORCA) {
+        ORCA.postMessage({ type: "reset_settings" });
+      }
+      applySettings(DEFAULT_SETTINGS);
+      note("Settings reset to defaults.", "success");
+      setTimeout(function () { note("", ""); }, 2500);
+    } else {
+      btnReset.dataset.confirming = "true";
+      btnReset.textContent = "Are you sure? Click to confirm";
+      resetConfirmTimer = setTimeout(function () {
+        btnReset.dataset.confirming = "false";
+        btnReset.textContent = "Reset to Defaults";
+      }, 3000);
+    }
+  });
 }
 
 function note(msg, state) {
@@ -3336,8 +3629,8 @@ function streamToOrca(buf, name, isAddingToPlate, finished, failed) {
           return this.failed(e);
         }
         if (this.isAddingToPlate) {
-          progSet("Adding to build plate…", 0.95);
-          note("Placing model on build plate… please wait.", "pending");
+          progSet("Adding to build plate\u2026", 0.95);
+          note("Placing model on build plate\u2026 please wait.", "pending");
         } else {
           this.finished("Saved");
         }
@@ -3389,7 +3682,7 @@ function streamToOrca(buf, name, isAddingToPlate, finished, failed) {
   }
 
   if (isAddingToPlate) {
-    note("Transferring model to OrcaSlicer… please wait.", "pending");
+    note("Transferring model to OrcaSlicer\u2026 please wait.", "pending");
   }
 
   // Kick off chunk sending after a slight defer to let save_stl_start reach Python
@@ -3429,7 +3722,7 @@ btnStl.addEventListener("click", function () {
   }
   var name = stem() + ts + ".stl";
   btnStl.disabled = true; btnRender.disabled = true;
-  btnStl.textContent = isAddingToPlate ? "Adding to plate…" : "Exporting…";
+  btnStl.textContent = isAddingToPlate ? "Adding to plate\u2026" : "Exporting\u2026";
   note("", false);
   progShow(isAddingToPlate ? "Building model" : "Building");
 
@@ -3464,7 +3757,7 @@ btnStl.addEventListener("click", function () {
         });
         return;
       }
-      progSet("Preparing transfer…", 0.82);
+      progSet("Preparing transfer\u2026", 0.82);
       defer(function () {
         streamToOrca(buf, name, isAddingToPlate, finished, failed);
       });
@@ -3480,20 +3773,23 @@ bedFrom = document.getElementById("bedFrom");
 
 function applyBed(m) {
   // setting .value in script raises no input event, so the note below stands
-  document.getElementById("bedX").value = m.x;
-  document.getElementById("bedY").value = m.y;
-  var mmX = document.getElementById("plate_mm_x");
-  var mmXNum = document.getElementById("plate_mm_x_num");
-  var mmY = document.getElementById("plate_mm_y");
-  var mmYNum = document.getElementById("plate_mm_y_num");
-  if (mmX && mmXNum && mmY && mmYNum) {
-    mmX.value = Math.min(+mmX.max || 600, m.x);
-    mmXNum.value = m.x;
-    mmY.value = Math.min(+mmY.max || 600, m.y);
-    mmYNum.value = m.y;
+  if (!hasSavedSettings || manualBedQuery) {
+    document.getElementById("bedX").value = m.x;
+    document.getElementById("bedY").value = m.y;
+    var mmX = document.getElementById("plate_mm_x");
+    var mmXNum = document.getElementById("plate_mm_x_num");
+    var mmY = document.getElementById("plate_mm_y");
+    var mmYNum = document.getElementById("plate_mm_y_num");
+    if (mmX && mmXNum && mmY && mmYNum) {
+      mmX.value = Math.min(+mmX.max || 600, m.x);
+      mmXNum.value = m.x;
+      mmY.value = Math.min(+mmY.max || 600, m.y);
+      mmYNum.value = m.y;
+    }
+    onChange(false);
   }
   bedFrom.textContent = m.printer + ": " + m.x + " \u00d7 " + m.y + " mm";
-  onChange(false);
+  manualBedQuery = false;
 }
 
 // typing a bed size by hand means it is no longer the printer's
@@ -3505,16 +3801,39 @@ function applyBed(m) {
 
 if (ORCA) {
   document.getElementById("btnBed").addEventListener("click", function () {
+    manualBedQuery = true;
     bedFrom.textContent = "asking OrcaSlicer\u2026";
     ORCA.postMessage({ type: "get_bed" });
   });
   ORCA.postMessage({ type: "get_bed" });
+  ORCA.postMessage({ type: "get_settings" });
 }
 
 if (ORCA && typeof ORCA.onMessage === "function") {
   ORCA.onMessage(function (m) {
     if (!m) return;
-    if (m.type === "bed") applyBed(m);
+    if (m.type === "settings") {
+      if (m.settings) {
+        hasSavedSettings = true;
+        applySettings(m.settings);
+        try {
+          localStorage.setItem("gridfinity_settings", JSON.stringify(m.settings));
+        } catch (e) {}
+      } else if (hasSavedSettings) {
+        var cur = serializeSettings();
+        ORCA.postMessage({ type: "save_settings", settings: cur });
+      }
+    }
+    if (m.type === "bed") {
+      if (m.settings) {
+        hasSavedSettings = true;
+        applySettings(m.settings);
+        try {
+          localStorage.setItem("gridfinity_settings", JSON.stringify(m.settings));
+        } catch (e) {}
+      }
+      applyBed(m);
+    }
     if (m.type === "bed_failed") {
       bedFrom.textContent = "could not read the printer bed";
       note("Bed size: " + m.error + " \u2014 set Bed X/Y by hand.", "error");
@@ -3602,6 +3921,17 @@ window.addEventListener("resize", function () { needsDraw = true; });
 darkMQ.addEventListener("change", function () { needsDraw = true; });
 
 /* ---- go ---- */
+try {
+  var savedRaw = localStorage.getItem("gridfinity_settings");
+  if (savedRaw) {
+    var savedParsed = JSON.parse(savedRaw);
+    if (savedParsed && typeof savedParsed === "object") {
+      hasSavedSettings = true;
+      applySettings(savedParsed);
+    }
+  }
+} catch (e) {}
+
 renderRowList();
 renderColList();
 if (!gl) {
