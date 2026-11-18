@@ -28,6 +28,10 @@ A parametric 3D generator plugin for **OrcaSlicer** that configures, previews, a
   * Dove-tail puzzle joints that interlock securely across segments.
   * Staggered seam layout to prevent weak 4-way corner intersections.
   * Auto-detection of active printer bed dimensions from OrcaSlicer.
+* **Magnet Pockets**:
+  * Optional blind $\varnothing 6.5\text{ mm} \times 2.4\text{ mm}$ pockets opening up into every socket floor, aligned with the bin foot magnets ($\pm 13\text{ mm}$ from each cell centre).
+  * Bins snap down onto the plate, and the plate itself can be stuck to a steel surface.
+  * Requires a solid base of at least $2.8\text{ mm}$; the solid base is raised automatically when pockets are enabled.
 
 ### 🚀 Slicer Integration & Experience
 * **Direct Build Plate Injection**: Exports binary STL files and automatically drops them into your active OrcaSlicer plate via single-instance IPC (D-Bus on Linux, `WM_COPYDATA` on Windows).
@@ -94,7 +98,7 @@ python3 build_orca_plugin.py --install
 2. Choose **Grid Units** or **Dimensions (mm)**:
    * When using **Dimensions (mm)**, enter your drawer or enclosure size (e.g. `250 × 210 mm`).
    * Click **`Add edge padding for exact size`** if you want symmetrical outer rim padding to fill the drawer completely.
-3. Configure puzzle connectors and optional solid base thickness.
+3. Configure puzzle connectors, optional solid base thickness, and optional magnet pockets (6×2 mm, aligns with bin foot magnets).
 4. If the plate exceeds your printer bed, the plugin automatically splits it into puzzle-joint segments.
 5. Click **Export STL**.
 

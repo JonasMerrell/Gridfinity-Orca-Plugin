@@ -261,6 +261,8 @@ canvas.dragging { cursor:grabbing; }
 
       <h2 style="margin-top:16px">Baseplate Options</h2>
       <div class="num"><label for="plateBase">Solid base (mm)</label><input type="number" id="plateBase" min="0" max="20" step="0.5" value="0"></div>
+      <label class="check"><input type="checkbox" id="plateMag"> Magnet pockets (6&times;2&nbsp;mm)</label>
+      <div style="font-size:11px; color:var(--muted); margin-left:24px; margin-bottom:8px">Pockets open into the sockets to pair with bin foot magnets and need at least 2.8&nbsp;mm solid base.</div>
       <div class="num"><label for="plateR">Corner radius</label><input type="number" id="plateR" min="0" max="12" step="0.5" value="4"></div>
       <div class="num"><label for="bedX">Bed X (mm)</label><input type="number" id="bedX" min="42" max="2000" step="5" value="250"></div>
       <div class="num"><label for="bedY">Bed Y (mm)</label><input type="number" id="bedY" min="42" max="2000" step="5" value="220"></div>
@@ -420,7 +422,10 @@ var LIP_INSET = CH_UPPER - LIP_CLEAR;              //  1.90
 var LIP_TAPER = 0.70;
 var LIP_H = CH_LOWER + H_MID + LIP_TAPER;          //  3.30
 var MAGNET_R = 3.25, MAGNET_H = 2.4;
+var MIN_MAG_BASE = MAGNET_H + 0.4;                 // 2.4 mm pocket + 0.4 mm wall
 var SCREW_R = 1.5, SCREW_H = 6.0, HOLE_OFF = 13;
+var HOLE_OFFS = [[-HOLE_OFF, -HOLE_OFF], [HOLE_OFF, -HOLE_OFF],
+                 [HOLE_OFF, HOLE_OFF], [-HOLE_OFF, HOLE_OFF]];
 
 var DEFAULTS = {
   gx: 2, gy: 1, gz: 6, dx: 2, dy: 1,
@@ -1032,6 +1037,7 @@ function planPlate(p) {
 
 function derivePlate(p) {
   var base = Math.max(0, p.plateBase || 0);
+  if (p.plateMag) base = Math.max(base, MIN_MAG_BASE);
   var padLeft = 0, padRight = 0, padBottom = 0, padTop = 0;
   if (p.plateExact && p.plate_size_mode === "mm") {
     var rawRemX = Math.max(0, p.plate_mm_x - p.gx * GRID);
@@ -1298,7 +1304,7 @@ function addPlateSegment(m, p, d, seg, i0, i1, j0, j1, dx, dy, conn) {
                              p, i0, i1, j0, j1, dx, dy, nc);
   addBand(m, outline, 0, outline, d.H, false);
 
-  var tops = [], floors = [];
+  var tops = [], floors = [], pockets = [];
   for (i = i0; i < i1; i++) for (j = j0; j < j1; j++) {
     var ox = (i + 0.5 - p.gx / 2) * GRID + dx;
     var oy = (j + 0.5 - p.gy / 2) * GRID + dy;
@@ -1316,13 +1322,28 @@ function addPlateSegment(m, p, d, seg, i0, i1, j0, j1, dx, dy, conn) {
       addBand(m, lv[k].loop, lv[k].z, lv[k + 1].loop, lv[k + 1].z, false);
     tops.push(lv[0].loop);
     floors.push(lv[lv.length - 1]);
+    var mags = [];
+    if (p.plateMag) {
+      for (k = 0; k < HOLE_OFFS.length; k++)
+        mags.push(circleLoop(ox + HOLE_OFFS[k][0], oy + HOLE_OFFS[k][1],
+                             MAGNET_R, seg.hole));
+    }
+    pockets.push(mags);
   }
 
   addCap(m, outline, tops, d.H, true);
   if (d.base > 1e-6) {
     // the socket floor sits on solid base, so it faces up into the socket
-    for (k = 0; k < floors.length; k++)
-      addCap(m, floors[k].loop, [], floors[k].z, true);
+    for (k = 0; k < floors.length; k++) {
+      addCap(m, floors[k].loop, pockets[k], floors[k].z, true);
+      // blind pockets run down into the base, open at the socket floor
+      for (var q = 0; q < pockets[k].length; q++) {
+        var pocket = pockets[k][q], zb = floors[k].z - MAGNET_H;
+        addHoleWalls(m, [{ loop: pocket, z: floors[k].z },
+                         { loop: pocket, z: zb }]);
+        addCap(m, pocket, [], zb, true);
+      }
+    }
     addCap(m, outline, [], 0, false);
   } else {
     addCap(m, outline, floors.map(function (f) { return f.loop; }), 0, false);
@@ -1398,8 +1419,7 @@ function* binSteps(P, seg) {
     { loop: rrLoop(FOOT_MID, FOOT_MID, R_MID, nc), z: CH_LOWER + H_MID },
     { loop: rrLoop(FOOT_TOP, FOOT_TOP, R_TOP, nc), z: BASE_H }
   ];
-  var offs = [[-HOLE_OFF, -HOLE_OFF], [HOLE_OFF, -HOLE_OFF],
-              [HOLE_OFF, HOLE_OFF], [-HOLE_OFF, HOLE_OFF]];
+  var offs = HOLE_OFFS;
 
   for (i = 0; i < P.gx; i++) for (j = 0; j < P.gy; j++) {
     var ox = cellX[i], oy = cellY[j];
@@ -1987,7 +2007,7 @@ var P = Object.assign({}, DEFAULTS, {
   bedX: 250, bedY: 220, plateGap: 0, plateConnectors: true
 });
 var FLOATS = ["wall","floorT","scoopR","labelD","labelW","fillet","plateBase","plateR","bedX","bedY","plateGap"];
-var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors"];
+var BOOLS = ["lip","scoop","label","mag","screw","plateConnectors","plateMag"];
 var SLIDERS = [
   { id: "gx", num: "gx_num", refit: true },
   { id: "gy", num: "gy_num", refit: true },
@@ -2040,6 +2060,7 @@ var DEFAULT_SETTINGS = {
   bedY: 220,
   plateGap: 0,
   plateConnectors: true,
+  plateMag: false,
   toPlate: true
 };
 var hasSavedSettings = false;
@@ -2214,6 +2235,7 @@ function serializeSettings() {
     bedY: parseFloat(document.getElementById("bedY") ? document.getElementById("bedY").value : 220),
     plateGap: parseFloat(document.getElementById("plateGap") ? document.getElementById("plateGap").value : 0),
     plateConnectors: document.getElementById("plateConnectors") ? !!document.getElementById("plateConnectors").checked : true,
+    plateMag: document.getElementById("plateMag") ? !!document.getElementById("plateMag").checked : false,
     toPlate: toPlateCheck ? !!toPlateCheck.checked : true
   };
 }
@@ -2551,7 +2573,14 @@ function updatePlateReadout() {
   for (sx = 0; sx < pl.cols.length; sx++) np += pl.rows[sx % 2].length;
   document.getElementById("s_depth").textContent =
     np + (np === 1 ? " piece" : " pieces") + "  (" + pl.cols.join("+") + " cols)";
-  document.getElementById("s_warn").hidden = true;
+  var pw = document.getElementById("s_warn");
+  if (P.plateMag && (P.plateBase || 0) < MIN_MAG_BASE) {
+    pw.hidden = false;
+    pw.textContent = "Magnet pockets need a solid base of at least " +
+      fmt(MIN_MAG_BASE) + " mm \u2014 using " + fmt(MIN_MAG_BASE) + " mm.";
+  } else {
+    pw.hidden = true;
+  }
 }
 
 function command() {
