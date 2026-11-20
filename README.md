@@ -100,6 +100,80 @@ python3 build_orca_plugin.py --install
 
 ---
 
+## Linux automatic import permissions
+
+OrcaSlicer 2.5.1 audits `subprocess.Popen` against the exact string representation
+of its argument list. A timestamped export filename therefore used to require a
+new process approval on every export. Linux imports now copy the finished archive
+to `gridfinity_output/.plate-import/gridfinity.stl` and hand off that stable path.
+The original named STL remains available (subject to the existing last-50 archive
+retention policy); the staging copy is outside archive pruning.
+
+Only approve commands you recognize. A permission rejection/pending approval stops
+that import immediately: no automatic retries, alternate interface, or Bambu Studio
+fallback. If approval is deferred, approving it does **not** replay the failed
+operation: click **Export STL** again. Initial setup can require separate approvals
+for D-Bus discovery, PID lookup, and delivery. With the same plugin location and
+Orca instance, new archive names no longer change those commands. Restarting Orca,
+changing its installation, or changing the transport can still require approval.
+
+Linux handoff stays in the host callback's audit context rather than a new Python
+worker thread. This can briefly block the panel while waiting for IPC. No blanket
+`full_access` or audit bypass is requested. The supported `orca.request_permissions`
+API is discovery-only, not a runtime approval API; the destination's instance hash
+is only known at runtime, so this fix retains host-managed per-command prompts.
+See the upstream [audit documentation](https://github.com/OrcaSlicer/OrcaSlicer/wiki/plugin_audit_hook),
+[2.5.1 permission implementation](https://github.com/OrcaSlicer/OrcaSlicer/blob/v2.5.1/src/slic3r/plugin/PluginAuditManager.cpp),
+and [Python API binding](https://github.com/OrcaSlicer/OrcaSlicer/blob/v2.5.1/src/slic3r/plugin/PythonPluginBridge.cpp).
+
+**IPC limitations:** Orca's D-Bus `AnotherInstance` normally sends no reply. A
+`NoReply` or timeout is reported as **unconfirmed**, never as successful placement,
+and is not retried because the request may already be queued. Confirm the model
+visually on the plate before another automatic export; if it is absent, import the
+named archive manually. A zero exit status acknowledges the handoff, not a verified
+plate change. A lock prevents overlapping/reentrant handoffs in one plugin runtime
+from replacing the staging copy, but cannot acknowledge an asynchronous read after
+handoff returns, or coordinate separate Orca processes. Do not batch automatic
+exports or share a plugin output folder between concurrent Orca instances; use the
+individual archives for those cases. The staging copy persists after denial or
+uncertain delivery, and is replaced only by the next explicit import attempt.
+
+### Development tests (no installation or GUI access)
+
+Edit `build_orca_plugin.py` for Python integration changes; generated plugins are
+not the source. These stdlib-only tests build/load real generated code with a stub
+`orca` module and fake subprocess boundary, covering both export protocols,
+permission rejection/retry, exact-command reuse, staging isolation, and uncertain
+IPC outcomes. They do not test a real Orca plate or its audit hook.
+
+```bash
+python3 build_orca_plugin.py --all-targets
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q build_orca_plugin.py gridfinity_bin_plugin_*.py tests
+# The test suite also checks all six tracked artifacts and repeat-build equality.
+git diff --check
+```
+
+### Manual Linux validation (required before release)
+
+1. Build locally, then deliberately install the matching generated plugin into a
+   test OrcaSlicer 2.5.1 profile. Do not disable audit checks or grant full access.
+2. Export a bin onto an empty test plate. Deny a requested process permission:
+   verify the named STL is saved, placement is not reported successful, and no
+   Bambu/alternate-command prompt follows from that attempt.
+3. Retry, approve only the specific expected Orca/D-Bus commands, and explicitly
+   retry after any deferred approval. Check the plate before repeating so a queued
+   request is not imported twice. An unconfirmed result is expected for `NoReply`.
+4. Change bin dimensions and export again under a new filename. Verify the new
+   geometry on the plate, both distinct archives on disk, and no new permission
+   caused solely by the archive filename. Repeat with a baseplate/chunked export.
+5. Try the page and floating panel together: overlapping handoffs should report
+   busy rather than overwrite an in-flight staging file. Wait for each visible
+   import before the next one. Restart Orca and check any new instance-specific
+   approvals separately.
+
+---
+
 ## 📐 Gridfinity Dimensions Quick Reference
 
 | Parameter | Dimension | Notes |

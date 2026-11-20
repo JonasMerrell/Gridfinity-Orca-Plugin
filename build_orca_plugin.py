@@ -77,7 +77,8 @@ Features:
   * Millimeter sizing with automatic unit fitting and optional edge padding
   * Direct build plate STL injection via single-instance IPC
 
-GENERATED FILE. Edit gridfinity_bin.html and re-run build_orca_plugin.py.
+GENERATED FILE. Edit gridfinity_bin.html or the Python template in
+build_orca_plugin.py, then re-run the builder.
 """
 
 import base64
@@ -144,10 +145,13 @@ def _session_bus_names():
             ["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus",
              "/org/freedesktop/DBus", "org.freedesktop.DBus.ListNames"],
             capture_output=True, text=True, timeout=5).stdout
+    except PermissionError:
+        raise
     except Exception:
         return []
 
-    names = list(set(BUS_RE.findall(out)))
+    names = sorted({name for name in BUS_RE.findall(out)
+                    if name.startswith("com.orcaslicer.OrcaSlicer.InstanceCheck.Object")})
     if not names:
         return []
 
@@ -166,6 +170,8 @@ def _session_bus_names():
             if m and int(m.group(1)) == my_pid:
                 matched.append(name)
                 continue
+        except PermissionError:
+            raise
         except Exception:
             pass
         others.append(name)
@@ -191,7 +197,7 @@ def _place_cli_fallback(path):
     if sys.executable and ("orca" in sys.executable.lower() or "slicer" in sys.executable.lower()):
         candidates.append([sys.executable, path])
 
-    for binary in ("orca-slicer", "OrcaSlicer", "bambu-studio"):
+    for binary in ("orca-slicer", "OrcaSlicer"):
         found = shutil.which(binary)
         if found:
             candidates.append([found, path])
@@ -201,6 +207,8 @@ def _place_cli_fallback(path):
             done = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             if done.returncode == 0:
                 return None
+        except PermissionError:
+            raise
         except Exception:
             continue
 
@@ -227,14 +235,21 @@ def _place_dbus(path):
                      obj, iface + ".AnotherInstance", "string:" + _payload(path)],
                     capture_output=True, text=True, timeout=5)
                 _log("dbus-send to", name, iface, "rc:", done.returncode, "err:", (done.stderr or "").strip())
-                # OrcaSlicer AnotherInstance does not send a method return, so NoReply is expected
-                # and means the connection was kept open for the full timeout, guaranteeing OrcaSlicer's
-                # background polling thread has dispatched the message.
-                if done.returncode == 0 or "NoReply" in (done.stderr or ""):
+                # NoReply does not prove the model was opened. It may already
+                # be queued, so never retry/fall back and create duplicates.
+                if "NoReply" in (done.stderr or ""):
+                    return ("Import request sent but placement is unconfirmed; confirm the model "
+                            "on the plate before exporting again. If absent, import the saved STL manually.")
+                if done.returncode == 0:
                     delivered += 1
                     return None
                 else:
                     last_err = (done.stderr or "the open request was rejected").strip()
+            except PermissionError:
+                raise
+            except subprocess.TimeoutExpired:
+                return ("Import request timed out; placement is unconfirmed. Confirm the plate "
+                        "before exporting again, or import the saved STL manually.")
             except FileNotFoundError:
                 return "dbus-send is not installed on this system"
             except Exception as exc:
@@ -383,15 +398,47 @@ def _place_windows(path):
 
 
 # -- dispatch ----------------------------------------------------------------
+_LINUX_IMPORT_LOCK = threading.Lock()
+
+
+def _load_linux_archive(path):
+    # Stable argv is essential: Orca 2.5.1 grants process targets by exact str.
+    # Keep the timestamped export separate; never rename/delete the archive.
+    if not _LINUX_IMPORT_LOCK.acquire(blocking=False):
+        return "Another Gridfinity import is in progress; wait, then retry Export STL."
+    try:
+        staging_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   OUTPUT_DIRNAME, ".plate-import")
+        os.makedirs(staging_dir, exist_ok=True)
+        staging = os.path.join(staging_dir, "gridfinity.stl")
+        temporary = staging + ".tmp"
+        with open(path, "rb") as source, open(temporary, "wb") as dest:
+            shutil.copyfileobj(source, dest)
+            dest.flush()
+            os.fsync(dest.fileno())
+        os.replace(temporary, staging)
+        # Do not retry a possibly dispatched request or change transports after
+        # an audit rejection. Approval authorizes the NEXT explicit export.
+        return _place_dbus(staging)
+    except PermissionError as exc:
+        return ("OrcaSlicer permission pending or denied: {}. Approve the specific command, "
+                "then retry Export STL.").format(exc)
+    except Exception as exc:
+        return "{}: {}".format(type(exc).__name__, exc)
+    finally:
+        _LINUX_IMPORT_LOCK.release()
+
+
 def load_onto_plate(path):
-    """Ask the running OrcaSlicer to open `path`. Returns None on success,
-    otherwise a short reason. Safe to call from a worker thread."""
+    """Ask OrcaSlicer to accept a file; None means the handoff was acknowledged.
+    Linux callers must retain the host callback's audit context. IPC cannot
+    verify the resulting plate contents; uncertain delivery returns a reason."""
     if IS_WINDOWS:
         place = _place_windows
     elif IS_MACOS:
         place = _place_macos
     else:
-        place = _place_dbus
+        return _load_linux_archive(path)
     last = "unknown error"
     for attempt in (1, 2, 3):
         if attempt > 1:
@@ -640,7 +687,8 @@ class _GridfinityCore:
             reply({"type": "saved", "path": path, "placed": False, "pending": True})
 
             def worker():
-                time.sleep(0.5)
+                if IS_WINDOWS or IS_MACOS:
+                    time.sleep(0.5)
                 problem = load_onto_plate(path)
                 try:
                     reply({"type": "placed", "path": path,
@@ -648,7 +696,10 @@ class _GridfinityCore:
                 except Exception as exc:
                     _log("could not report placement result:", exc)
 
-            threading.Thread(target=worker, name="gridfinity-place", daemon=True).start()
+            if IS_WINDOWS or IS_MACOS:
+                threading.Thread(target=worker, name="gridfinity-place", daemon=True).start()
+            else:
+                worker()  # Keep Orca's plugin audit context on this callback.
             return
 
         if kind != "save_stl":
@@ -664,14 +715,15 @@ class _GridfinityCore:
             reply({"type": "saved", "path": path, "placed": False})
             return
 
-        # on_message runs on the UI thread; dbus-send would freeze it, so hand
-        # the placement off and report back when it finishes.
+        # Linux keeps process creation in the host's audited callback. Other
+        # platforms retain their existing asynchronous placement behaviour.
         reply({"type": "saved", "path": path, "placed": False, "pending": True})
 
         def worker():
             # Give the UI thread time to complete returning from on_message
             # so OrcaSlicer's main event loop is idle and receptive to IPC
-            time.sleep(0.5)
+            if IS_WINDOWS or IS_MACOS:
+                time.sleep(0.5)
             problem = load_onto_plate(path)
             try:
                 reply({"type": "placed", "path": path,
@@ -679,7 +731,10 @@ class _GridfinityCore:
             except Exception as exc:
                 _log("could not report placement result:", exc)
 
-        threading.Thread(target=worker, name="gridfinity-place", daemon=True).start()
+        if IS_WINDOWS or IS_MACOS:
+            threading.Thread(target=worker, name="gridfinity-place", daemon=True).start()
+        else:
+            worker()  # Keep Orca's plugin audit context on this callback.
 
     def _prune_old_stls(self):
         try:
