@@ -85,6 +85,23 @@ class LinuxImportTests(unittest.TestCase):
         self.assertIn("permission", problem.lower())
         self.assertEqual(len(calls), 2, calls)
 
+    def test_cli_timeout_does_not_try_second_executable(self):
+        calls = []
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if len(calls) == 1:
+                raise self.plugin.subprocess.TimeoutExpired(argv, 10)
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch.object(self.plugin.subprocess, "run", side_effect=run), \
+             patch.object(self.plugin.os.path, "realpath", return_value="/usr/bin/python"), \
+             patch.object(self.plugin.sys, "executable", "/usr/bin/python"), \
+             patch.object(self.plugin.shutil, "which", side_effect=lambda name: "/usr/bin/" + name), \
+             patch.dict(self.plugin.os.environ, {}, clear=True):
+            problem = self.plugin._place_cli_fallback(str(self.root / "export.stl"))
+        self.assertEqual(len(calls), 1, calls)
+        self.assertIsNotNone(problem)
+        self.assertIn("unconfirmed", problem.lower())
+
     def test_linux_never_discovers_bambu(self):
         with patch.object(self.plugin.os.path, "realpath", return_value="/usr/bin/python"), \
              patch.object(self.plugin.shutil, "which", return_value=None) as which, \

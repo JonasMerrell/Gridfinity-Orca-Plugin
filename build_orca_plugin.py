@@ -209,6 +209,9 @@ def _place_cli_fallback(path):
                 return None
         except PermissionError:
             raise
+        except subprocess.TimeoutExpired:
+            return ("Import request timed out; placement is unconfirmed. Confirm the plate "
+                    "before exporting again, or import the saved STL manually.")
         except Exception:
             continue
 
